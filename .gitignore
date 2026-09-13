@@ -1,0 +1,11 @@
+# Out-of-source CMake builds and local presets.
+/build/
+/build-*/
+/out/
+/CMakeUserPresets.json
+
+# Local editor and operating-system files.
+/.idea/
+/.vscode/
+.DS_Store
+Thumbs.db
