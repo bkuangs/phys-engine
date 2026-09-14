@@ -11,24 +11,13 @@ namespace phys {
 class RigidBody
 {
 public:
-    enum class ShapeType
-    {
-        Sphere,
-        Box,
-        ConvexHull
-    };
+    RigidBody() = default;
 
     float mass;
     float density;
     float restitution;
     float area;
 
-    float radius;
-    float width;
-    float height;
-    float depth;
-
-    ShapeType type;
     bool isStatic;
 
     RigidBody(
@@ -37,21 +26,11 @@ public:
         float mass,
         float restitution,
         float area,
-        float radius,
-        float width,
-        float height,
-        float depth,
-        bool isStatic,
-        ShapeType type)
+        bool isStatic)
         : mass(mass),
         density(density),
         restitution(restitution),
         area(area),
-        radius(radius),
-        width(width),
-        height(height),
-        depth(depth),
-        type(type),
         isStatic(isStatic),
         position(position),
         linVelo{},
@@ -98,17 +77,7 @@ public:
         const float mass = area * density;
 
         body = RigidBody(
-            position,
-            density,
-            mass,
-            restitution,
-            area,
-            radius,
-            0.0f,
-            0.0f,
-            0.0f,
-            isStatic,
-            ShapeType::Sphere
+            position, density, mass, restitution, area, isStatic
         );
 
         return true;
@@ -142,17 +111,7 @@ public:
         const float mass = volume * density;
 
         body = RigidBody(
-            position,
-            density,
-            mass,
-            restitution,
-            volume,
-            0.0f,
-            width,
-            height,
-            depth,
-            isStatic,
-            ShapeType::Box
+            position, density, mass, restitution, volume, isStatic
         );
 
         return true;

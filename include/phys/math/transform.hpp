@@ -9,6 +9,7 @@ struct Transform
     Vec3 position{};
     Quaternion orientation = Quaternion::identity();
 
+    constexpr Transform() = default;
     static constexpr Transform zero() { return {}; }
 
     Transform(Vec3 pos, Quaternion rot) : position(pos), orientation(rot) {}

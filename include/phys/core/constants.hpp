@@ -2,6 +2,11 @@
 
 namespace phys {
 
+struct MathConstants
+{
+    static constexpr float pi = 3.14159265358979323846f;
+};
+
 struct BodyLimits
 {
     static constexpr float minSize = 0.01f * 0.01f;

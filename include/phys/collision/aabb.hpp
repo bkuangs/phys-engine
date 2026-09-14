@@ -3,6 +3,10 @@
 
 namespace phys {
 
+class RigidBody;
+struct Collider;
+struct Transform;
+
 struct Aabb
 {
     Vec3 min{};
@@ -13,6 +17,8 @@ struct Aabb
             && min.y <= other.max.y && max.y >= other.min.y
             && min.z <= other.max.z && max.z >= other.min.z;
     }
+
+    static Aabb fromCollider(const Collider& collider, const Transform& bodyTransform);
 };
 
 }

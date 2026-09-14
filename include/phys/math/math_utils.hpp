@@ -1,4 +1,5 @@
 #pragma once
+#include <stdexcept>
 #include "vec3.hpp"
 
 namespace phys {
@@ -23,7 +24,7 @@ public:
     static float clamp(float value, float min, float max)
     {
         if (min == max) return min;
-        if (min > max) throw new ArgumentOutOfRangeException();
+        if (min > max) throw std::invalid_argument("clamp minimum exceeds maximum");
         if (value < min) return min;
         if (value > max) return max;
 

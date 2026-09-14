@@ -7,6 +7,22 @@ namespace phys {
 
 namespace {
 
+struct WorldBox
+{
+    Vec3 center;
+    Vec3 halfExtents;
+    Quaternion orientation;
+
+    Vec3 axis(int index) const {
+        Mat3 matrix = orientation.toMat3();
+        switch (index) {
+            case 0: return {matrix.m00, matrix.m10, matrix.m20};
+            case 1: return {matrix.m01, matrix.m11, matrix.m21};
+            default: return {matrix.m02, matrix.m12, matrix.m22};
+        }
+    }
+};
+
 float dot(const Vec3& a, const Vec3& b) {
     return a.x * b.x + a.y * b.y + a.z * b.z;
 }
@@ -19,14 +35,14 @@ Vec3 cross(const Vec3& a, const Vec3& b) {
     };
 }
 
-float projectedRadius(const Box& box, const Vec3& axis) {
+float projectedRadius(const WorldBox& box, const Vec3& axis) {
     return std::abs(dot(box.axis(0), axis)) * box.halfExtents.x
          + std::abs(dot(box.axis(1), axis)) * box.halfExtents.y
          + std::abs(dot(box.axis(2), axis)) * box.halfExtents.z;
 }
 
 // Returns false (separating axis found) or true with the overlap depth along axis.
-bool overlapOnAxis(const Box& a, const Box& b, Vec3 axis, float& depth) {
+bool overlapOnAxis(const WorldBox& a, const WorldBox& b, Vec3 axis, float& depth) {
     float lengthSq = dot(axis, axis);
     if (lengthSq < 1e-8f) {
         depth = std::numeric_limits<float>::max();  // degenerate axis (parallel edges): ignore
@@ -45,22 +61,26 @@ bool overlapOnAxis(const Box& a, const Box& b, Vec3 axis, float& depth) {
 
 } // namespace
 
-bool testOBBOBB(const Box& a, const Box& b, Vec3& outAxis, float& outDepth)
+bool testOBBOBB(const Box& a, const Transform& transformA,
+                const Box& b, const Transform& transformB,
+                Vec3& outAxis, float& outDepth)
 {
     outDepth = std::numeric_limits<float>::max();
 
-    Vec3 axesA[3] = {a.axis(0), a.axis(1), a.axis(2)};
-    Vec3 axesB[3] = {b.axis(0), b.axis(1), b.axis(2)};
+    WorldBox worldA{transformA.position, a.halfExtents, transformA.orientation};
+    WorldBox worldB{transformB.position, b.halfExtents, transformB.orientation};
+    Vec3 axesA[3] = {worldA.axis(0), worldA.axis(1), worldA.axis(2)};
+    Vec3 axesB[3] = {worldB.axis(0), worldB.axis(1), worldB.axis(2)};
 
     for (const Vec3& axis : axesA) {
         float depth;
-        if (!overlapOnAxis(a, b, axis, depth)) return false;
+        if (!overlapOnAxis(worldA, worldB, axis, depth)) return false;
         if (depth < outDepth) { outDepth = depth; outAxis = axis; }
     }
 
     for (const Vec3& axis : axesB) {
         float depth;
-        if (!overlapOnAxis(a, b, axis, depth)) return false;
+        if (!overlapOnAxis(worldA, worldB, axis, depth)) return false;
         if (depth < outDepth) { outDepth = depth; outAxis = axis; }
     }
 
@@ -68,7 +88,7 @@ bool testOBBOBB(const Box& a, const Box& b, Vec3& outAxis, float& outDepth)
         for (const Vec3& edgeB : axesB) {
             Vec3 axis = cross(edgeA, edgeB);
             float depth;
-            if (!overlapOnAxis(a, b, axis, depth)) return false;
+            if (!overlapOnAxis(worldA, worldB, axis, depth)) return false;
             if (depth < outDepth) { outDepth = depth; outAxis = axis; }
         }
     }

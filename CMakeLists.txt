@@ -9,6 +9,7 @@ add_library(phys STATIC
     src/dynamics/rigid_body.cpp
     src/dynamics/mass_properties.cpp
     src/dynamics/integrator.cpp
+    src/collision/aabb.cpp
     src/collision/broadphase.cpp
     src/collision/narrowphase.cpp
     src/collision/sat.cpp
