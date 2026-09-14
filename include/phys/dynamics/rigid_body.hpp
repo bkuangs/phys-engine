@@ -3,7 +3,7 @@
 
 #include "phys/math/vec3.hpp"
 #include "phys/math/math_utils.hpp"
-#include "phys/world/physics_world.hpp"
+#include "phys/core/constants.hpp"
 
 namespace phys {
 
@@ -63,12 +63,12 @@ public:
 
         const float area = radius * radius * MathConstants::pi;
 
-        if (area < PhysicsWorld::minBodySize) {
+        if (area < BodyLimits::minSize) {
             errorMessage = "Sphere is too small";
             return false;
         }
 
-        if (area > PhysicsWorld::maxBodySize) {
+        if (area > BodyLimits::maxSize) {
             errorMessage = "Sphere is too large";
             return false;
         }
@@ -106,12 +106,12 @@ public:
 
         const float volume = width * height * depth;
 
-        if (volume < PhysicsWorld::minBodySize) {
+        if (volume < BodyLimits::minSize) {
             errorMessage = "Box is too small";
             return false;
         }
 
-        if (volume > PhysicsWorld::maxBodySize) {
+        if (volume > BodyLimits::maxSize) {
             errorMessage = "Box is too large";
             return false;
         }
