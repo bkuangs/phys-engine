@@ -2,6 +2,7 @@
 #include <string>
 
 #include "phys/math/vec3.hpp"
+#include "phys/math/quaternion.hpp"
 #include "phys/math/math_utils.hpp"
 #include "phys/core/constants.hpp"
 
@@ -37,6 +38,9 @@ public:
         float restitution,
         float area,
         float radius,
+        float width,
+        float height,
+        float depth,
         bool isStatic,
         ShapeType type)
         : mass(mass),
@@ -44,9 +48,9 @@ public:
         restitution(restitution),
         area(area),
         radius(radius),
-        width(0.0f),
-        height(0.0f),
-        depth(0.0f),
+        width(width),
+        height(height),
+        depth(depth),
         type(type),
         isStatic(isStatic),
         position(position),
@@ -55,6 +59,20 @@ public:
         angularVelo{}
     {
     }
+
+    // Pose-integration stage: advances position by the current linear velocity.
+    void integratePosition(float dt);
+
+    // Pose-integration stage: advances orientation by the current angular velocity.
+    void integrateRotation(float dt);
+
+    Vec3 getPosition() const { return position; }
+    Vec3 getLinearVelocity() const { return linVelo; }
+    void setLinearVelocity(const Vec3& velocity) { linVelo = velocity; }
+
+    Quaternion getRotation() const { return rotation; }
+    Vec3 getAngularVelocity() const { return angularVelo; }
+    void setAngularVelocity(const Vec3& velocity) { angularVelo = velocity; }
 
     static bool createSphere(float radius, Vec3 position, float density,
         bool isStatic, float restitution, RigidBody& body, std::string& errorMessage)
@@ -86,6 +104,9 @@ public:
             restitution,
             area,
             radius,
+            0.0f,
+            0.0f,
+            0.0f,
             isStatic,
             ShapeType::Sphere
         );
@@ -126,6 +147,7 @@ public:
             mass,
             restitution,
             volume,
+            0.0f,
             width,
             height,
             depth,
@@ -139,7 +161,7 @@ public:
 private:
     Vec3 position;
     Vec3 linVelo;
-    Vec3 rotation;
+    Quaternion rotation = Quaternion::identity();
     Vec3 angularVelo;
 };
 

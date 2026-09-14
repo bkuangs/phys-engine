@@ -57,8 +57,14 @@ void PhysicsWorld::step(float dt)
     // TODO: compute broad-phase candidate pairs (Collision::BroadPhase).
     // TODO: generate narrow-phase contact manifolds (Collision::NarrowPhase).
     // TODO: prepare/solve contact constraints (Solver::SequentialImpulseSolver).
-    // TODO: integrate corrected velocities into positions/orientations.
-    (void)dt;
+
+    // Pose-integration: advance each active body by its current velocities.
+    for (Slot& slot : slots) {
+        if (!slot.alive) continue;
+
+        slot.body.integratePosition(dt);
+        slot.body.integrateRotation(dt);
+    }
 }
 
 }
