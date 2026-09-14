@@ -7,6 +7,7 @@
 #include "phys/collision/collider.hpp"
 #include "phys/collision/manifold.hpp"
 #include "phys/world/body_handle.hpp"
+#include "phys/world/step_stats.hpp"
 
 namespace phys {
 
@@ -47,6 +48,9 @@ public:
     // owning subsystems (Integrator, BroadPhase, NarrowPhase, Solver) exist.
     void step(float dt);
 
+    // Per-stage timings/counts recorded during the most recent step().
+    const StepStats& lastStepStats() const { return stats; }
+
 private:
     struct Slot
     {
@@ -68,6 +72,7 @@ private:
     std::vector<ColliderSlot> colliderSlots;
     std::vector<uint32_t> freeColliderList;
     std::vector<ContactManifold> currentContacts;
+    StepStats stats;
 };
 
 }

@@ -1,9 +1,22 @@
 #include <phys/world/physics_world.hpp>
 #include <phys/dynamics/integrator.hpp>
 #include <phys/solver/sequential_impulse_solver.hpp>
+#include <chrono>
 #include <cmath>
+#include <utility>
 
 namespace phys {
+
+namespace {
+
+using Clock = std::chrono::steady_clock;
+
+double elapsedMs(Clock::time_point start)
+{
+    return std::chrono::duration<double, std::milli>(Clock::now() - start).count();
+}
+
+}
 
 RigidBodyHandle PhysicsWorld::addBody(const RigidBody& body)
 {
@@ -152,10 +165,14 @@ const Collider* PhysicsWorld::getCollider(ColliderHandle handle) const
 
 void PhysicsWorld::step(float dt)
 {
+    auto stepStart = Clock::now();
+
+    auto velocityStart = Clock::now();
     for (Slot& slot : slots) {
         if (!slot.alive) continue;
         integrateVelocity(slot.body, gravity, dt);
     }
+    stats.integrateVelocityMs = elapsedMs(velocityStart);
 
     for (ColliderSlot& slot : colliderSlots) {
         if (!slot.alive) continue;
@@ -167,7 +184,11 @@ void PhysicsWorld::step(float dt)
         slot.collider.bounds = Aabb::fromCollider(slot.collider, bodyTransform);
     }
 
-    currentContacts.clear();
+    // Broad-phase: collect AABB-overlapping sphere pairs as candidates.
+    auto broadPhaseStart = Clock::now();
+    std::vector<std::pair<uint32_t, uint32_t>> candidatePairs;
+    std::size_t possiblePairs = 0;
+
     for (uint32_t first = 0; first < colliderSlots.size(); ++first) {
         ColliderSlot& firstSlot = colliderSlots[first];
         if (!firstSlot.alive || firstSlot.collider.type != ShapeType::Sphere) continue;
@@ -176,35 +197,56 @@ void PhysicsWorld::step(float dt)
             ColliderSlot& secondSlot = colliderSlots[second];
             if (!secondSlot.alive || secondSlot.collider.type != ShapeType::Sphere) continue;
             if (firstSlot.collider.body == secondSlot.collider.body) continue;
-            if (!firstSlot.collider.bounds.overlaps(secondSlot.collider.bounds)) continue;
 
-            const RigidBody* bodyA = getBody(firstSlot.collider.body);
-            const RigidBody* bodyB = getBody(secondSlot.collider.body);
-            if (!bodyA || !bodyB) continue;
-
-            Vec3 delta = bodyB->getPosition() - bodyA->getPosition();
-            float distanceSquared = delta.x * delta.x + delta.y * delta.y + delta.z * delta.z;
-            float radii = firstSlot.collider.sphere.radius + secondSlot.collider.sphere.radius;
-            if (distanceSquared >= radii * radii) continue;
-
-            float distance = std::sqrt(distanceSquared);
-            Vec3 normal = distance > 1e-6f
-                ? delta * (1.0f / distance) : Vec3{1.0f, 0.0f, 0.0f};
-
-            ContactManifold manifold;
-            manifold.bodyA = firstSlot.collider.body;
-            manifold.bodyB = secondSlot.collider.body;
-            manifold.normal = normal;
-            manifold.restitution = std::max(bodyA->restitution, bodyB->restitution);
-            manifold.pointCount = 1;
-            manifold.points[0].penetration = radii - distance;
-            currentContacts.push_back(manifold);
+            ++possiblePairs;
+            if (firstSlot.collider.bounds.overlaps(secondSlot.collider.bounds)) {
+                candidatePairs.emplace_back(first, second);
+            }
         }
     }
+    stats.broadPhaseMs = elapsedMs(broadPhaseStart);
+    stats.possiblePairs = possiblePairs;
+    stats.candidatePairs = candidatePairs.size();
 
+    // Narrow-phase: exact sphere-sphere test on each candidate pair.
+    auto narrowPhaseStart = Clock::now();
+    currentContacts.clear();
+
+    for (const auto& pair : candidatePairs) {
+        ColliderSlot& firstSlot = colliderSlots[pair.first];
+        ColliderSlot& secondSlot = colliderSlots[pair.second];
+
+        const RigidBody* bodyA = getBody(firstSlot.collider.body);
+        const RigidBody* bodyB = getBody(secondSlot.collider.body);
+        if (!bodyA || !bodyB) continue;
+
+        Vec3 delta = bodyB->getPosition() - bodyA->getPosition();
+        float distanceSquared = delta.x * delta.x + delta.y * delta.y + delta.z * delta.z;
+        float radii = firstSlot.collider.sphere.radius + secondSlot.collider.sphere.radius;
+        if (distanceSquared >= radii * radii) continue;
+
+        float distance = std::sqrt(distanceSquared);
+        Vec3 normal = distance > 1e-6f
+            ? delta * (1.0f / distance) : Vec3{1.0f, 0.0f, 0.0f};
+
+        ContactManifold manifold;
+        manifold.bodyA = firstSlot.collider.body;
+        manifold.bodyB = secondSlot.collider.body;
+        manifold.normal = normal;
+        manifold.restitution = std::max(bodyA->restitution, bodyB->restitution);
+        manifold.pointCount = 1;
+        manifold.points[0].penetration = radii - distance;
+        currentContacts.push_back(manifold);
+    }
+    stats.narrowPhaseMs = elapsedMs(narrowPhaseStart);
+    stats.contactCount = currentContacts.size();
+
+    auto solverStart = Clock::now();
     SequentialImpulseSolver::solve(currentContacts, *this, dt);
+    stats.solverMs = elapsedMs(solverStart);
 
     // Pose-integration: advance each active body by its current velocities.
+    auto poseStart = Clock::now();
     for (Slot& slot : slots) {
         if (!slot.alive) continue;
 
@@ -212,9 +254,9 @@ void PhysicsWorld::step(float dt)
         slot.body.integrateRotation(dt);
         slot.body.clearForces();
     }
+    stats.integratePoseMs = elapsedMs(poseStart);
 
+    stats.totalMs = elapsedMs(stepStart);
 }
 
 }
-
-// TODO: Orchestrate the pipeline documented in docs/architecture.md.

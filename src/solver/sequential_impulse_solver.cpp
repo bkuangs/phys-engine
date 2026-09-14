@@ -36,7 +36,7 @@ void SequentialImpulseSolver::solve(std::vector<ContactManifold>& contacts,
 					* (0.2f / std::max(dt, 1e-6f));
 				float restitutionVelocity = velocityAlongNormal < -1.0f
 					? manifold.restitution * velocityAlongNormal : 0.0f;
-				float impulseDelta = -(velocityAlongNormal + restitutionVelocity + bias)
+				float impulseDelta = -(velocityAlongNormal + restitutionVelocity - bias)
 					/ inverseMassSum;
 				float previousImpulse = point.normalImpulse;
 				point.normalImpulse = std::max(previousImpulse + impulseDelta, 0.0f);
@@ -51,5 +51,3 @@ void SequentialImpulseSolver::solve(std::vector<ContactManifold>& contacts,
 }
 
 }
-
-// TODO: Implement iterative normal and friction impulse solving.
