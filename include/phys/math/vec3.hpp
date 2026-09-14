@@ -21,6 +21,7 @@ struct Vec3
     }
 
     static constexpr Vec3 zero() { return {0.0f, 0.0f, 0.0f}; }
+
 };
 
 inline Vec3 operator+(Vec3 left, const Vec3& right) {

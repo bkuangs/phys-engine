@@ -16,6 +16,10 @@ public:
 
     static float cross(Vec3 a, Vec3 b);
 
+    static float sin(float radians);
+
+    static float cos(float radians);
+
     static float clamp(float value, float min, float max)
     {
         if (min == max) return min;

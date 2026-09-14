@@ -1,7 +1,12 @@
 #pragma once
+#include "phys/math/vec3.hpp"
 
 namespace phys {
 
-// TODO: Declare separating-axis queries when oriented-box collision is introduced.
+struct Box;
+
+// Separating-axis test for two oriented boxes. On overlap, outAxis/outDepth
+// hold the minimum-translation axis (pointing from a toward b) and penetration depth.
+bool testOBBOBB(const Box& a, const Box& b, Vec3& outAxis, float& outDepth);
 
 }
