@@ -48,6 +48,9 @@ public:
     Vec3 getPosition() const { return position; }
     Vec3 getLinearVelocity() const { return linVelo; }
     void setLinearVelocity(const Vec3& velocity) { linVelo = velocity; }
+    void applyLinearImpulse(const Vec3& impulse) {
+        if (!isStatic) linVelo += impulse * getInverseMass();
+    }
 
     float getInverseMass() const {
         return isStatic || mass <= 0.0f ? 0.0f : 1.0f / mass;

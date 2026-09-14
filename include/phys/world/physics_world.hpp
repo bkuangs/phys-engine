@@ -5,6 +5,7 @@
 #include "phys/math/vec3.hpp"
 #include "phys/dynamics/rigid_body.hpp"
 #include "phys/collision/collider.hpp"
+#include "phys/collision/manifold.hpp"
 #include "phys/world/body_handle.hpp"
 
 namespace phys {
@@ -39,6 +40,7 @@ public:
     void removeCollider(ColliderHandle handle);
     Collider* getCollider(ColliderHandle handle);
     const Collider* getCollider(ColliderHandle handle) const;
+    const std::vector<ContactManifold>& contacts() const { return currentContacts; }
 
     // Advances the simulation by a fixed timestep. See docs/architecture.md
     // "Step pipeline" for stage ordering; stages are stubbed until their
@@ -65,6 +67,7 @@ private:
 
     std::vector<ColliderSlot> colliderSlots;
     std::vector<uint32_t> freeColliderList;
+    std::vector<ContactManifold> currentContacts;
 };
 
 }
