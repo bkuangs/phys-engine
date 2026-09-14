@@ -56,34 +56,6 @@ public:
     {
     }
 
-    RigidBody(
-        Vec3 position,
-        float density,
-        float mass,
-        float restitution,
-        float volume,
-        float width,
-        float height,
-        float depth,
-        bool isStatic,
-        ShapeType type)
-        : mass(mass),
-        density(density),
-        restitution(restitution),
-        area(volume),
-        radius(0.0f),
-        width(width),
-        height(height),
-        depth(depth),
-        type(type),
-        isStatic(isStatic),
-        position(position),
-        linVelo{},
-        rotation{},
-        angularVelo{}
-    {
-    }
-
     static bool createSphere(float radius, Vec3 position, float density,
         bool isStatic, float restitution, RigidBody& body, std::string& errorMessage)
     {

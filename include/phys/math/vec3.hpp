@@ -19,6 +19,8 @@ struct Vec3
     Vec3 operator-() const {
         return {-x, -y, -z};
     }
+
+    static constexpr Vec3 zero() { return {0.0f, 0.0f, 0.0f}; }
 };
 
 inline Vec3 operator+(Vec3 left, const Vec3& right) {

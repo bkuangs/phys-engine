@@ -8,7 +8,7 @@ class Math3d
 public:
     static float length(Vec3 v);
 
-    static float distance(Vec3 v);
+    static float distance(Vec3 a, Vec3 b);
 
     static Vec3 normalize(Vec3 v);
 
