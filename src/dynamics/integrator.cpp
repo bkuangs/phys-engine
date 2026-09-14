@@ -1,3 +1,13 @@
 #include <phys/dynamics/integrator.hpp>
 
-// TODO: Implement semi-implicit Euler with separate velocity and pose stages.
+namespace phys {
+
+void integrateVelocity(RigidBody& body, const Vec3& gravity, float dt)
+{
+	if (body.isStatic) return;
+
+	Vec3 acceleration = gravity + body.getForce() * body.getInverseMass();
+	body.setLinearVelocity(body.getLinearVelocity() + acceleration * dt);
+}
+
+}

@@ -49,6 +49,16 @@ public:
     Vec3 getLinearVelocity() const { return linVelo; }
     void setLinearVelocity(const Vec3& velocity) { linVelo = velocity; }
 
+    float getInverseMass() const {
+        return isStatic || mass <= 0.0f ? 0.0f : 1.0f / mass;
+    }
+
+    Vec3 getForce() const { return force; }
+    void applyForce(const Vec3& value) {
+        if (!isStatic) force += value;
+    }
+    void clearForces() { force = Vec3::zero(); }
+
     Quaternion getRotation() const { return rotation; }
     Vec3 getAngularVelocity() const { return angularVelo; }
     void setAngularVelocity(const Vec3& velocity) { angularVelo = velocity; }
@@ -122,6 +132,7 @@ private:
     Vec3 linVelo;
     Quaternion rotation = Quaternion::identity();
     Vec3 angularVelo;
+    Vec3 force;
 };
 
 }

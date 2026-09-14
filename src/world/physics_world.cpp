@@ -1,4 +1,5 @@
 #include <phys/world/physics_world.hpp>
+#include <phys/dynamics/integrator.hpp>
 
 namespace phys {
 
@@ -149,7 +150,11 @@ const Collider* PhysicsWorld::getCollider(ColliderHandle handle) const
 
 void PhysicsWorld::step(float dt)
 {
-    // TODO: integrate forces/torques into velocities (Dynamics::Integrator).
+    for (Slot& slot : slots) {
+        if (!slot.alive) continue;
+        integrateVelocity(slot.body, gravity, dt);
+    }
+
     // TODO: update collider world transforms/bounds from current body poses.
     // TODO: compute broad-phase candidate pairs (Collision::BroadPhase).
     // TODO: generate narrow-phase contact manifolds (Collision::NarrowPhase).
@@ -161,6 +166,7 @@ void PhysicsWorld::step(float dt)
 
         slot.body.integratePosition(dt);
         slot.body.integrateRotation(dt);
+        slot.body.clearForces();
     }
 
     for (ColliderSlot& slot : colliderSlots) {

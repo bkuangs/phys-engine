@@ -1,7 +1,8 @@
 #pragma once
+#include "phys/dynamics/rigid_body.hpp"
 
 namespace phys {
 
-// TODO: Declare separate force-to-velocity and velocity-to-pose integration APIs.
+void integrateVelocity(RigidBody& body, const Vec3& gravity, float dt);
 
 }
