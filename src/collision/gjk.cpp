@@ -1,4 +1,5 @@
 #include <phys/collision/gjk.hpp>
+#include <phys/math/math_utils.hpp>
 #include <algorithm>
 #include <cmath>
 #include <utility>
@@ -7,28 +8,14 @@ namespace phys {
 
 namespace {
 
-float dot(const Vec3& left, const Vec3& right)
-{
-	return left.x * right.x + left.y * right.y + left.z * right.z;
-}
-
-Vec3 cross(const Vec3& left, const Vec3& right)
-{
-	return {
-		left.y * right.z - left.z * right.y,
-		left.z * right.x - left.x * right.z,
-		left.x * right.y - left.y * right.x
-	};
-}
-
 Vec3 tripleCross(const Vec3& first, const Vec3& second, const Vec3& third)
 {
-	return cross(cross(first, second), third);
+	return Math3d::cross(Math3d::cross(first, second), third);
 }
 
 float lengthSquared(const Vec3& value)
 {
-	return dot(value, value);
+	return Math3d::dot(value, value);
 }
 
 bool setLineDirection(GjkSimplex& simplex, Vec3& direction)
@@ -38,12 +25,12 @@ bool setLineDirection(GjkSimplex& simplex, Vec3& direction)
 	Vec3 toOrigin = -pointA;
 	Vec3 edge = pointB - pointA;
 
-	if (dot(edge, toOrigin) > 0.0f) {
+	if (Math3d::dot(edge, toOrigin) > 0.0f) {
 		direction = tripleCross(edge, toOrigin, edge);
 		if (lengthSquared(direction) < 1e-12f)
-			direction = cross(edge, {1.0f, 0.0f, 0.0f});
+			direction = Math3d::cross(edge, {1.0f, 0.0f, 0.0f});
 		if (lengthSquared(direction) < 1e-12f)
-			direction = cross(edge, {0.0f, 1.0f, 0.0f});
+			direction = Math3d::cross(edge, {0.0f, 1.0f, 0.0f});
 	} else {
 		simplex.points[0] = pointA;
 		simplex.size = 1;
@@ -61,10 +48,10 @@ bool setTriangleDirection(GjkSimplex& simplex, Vec3& direction)
 	Vec3 toOrigin = -pointA;
 	Vec3 edgeAB = pointB - pointA;
 	Vec3 edgeAC = pointC - pointA;
-	Vec3 normal = cross(edgeAB, edgeAC);
+	Vec3 normal = Math3d::cross(edgeAB, edgeAC);
 
-	if (dot(cross(normal, edgeAC), toOrigin) > 0.0f) {
-		if (dot(edgeAC, toOrigin) > 0.0f) {
+	if (Math3d::dot(Math3d::cross(normal, edgeAC), toOrigin) > 0.0f) {
+		if (Math3d::dot(edgeAC, toOrigin) > 0.0f) {
 			simplex.points[1] = pointC;
 			simplex.size = 2;
 			direction = tripleCross(edgeAC, toOrigin, edgeAC);
@@ -73,10 +60,10 @@ bool setTriangleDirection(GjkSimplex& simplex, Vec3& direction)
 		return setLineDirection(simplex, direction);
 	}
 
-	if (dot(cross(edgeAB, normal), toOrigin) > 0.0f)
+	if (Math3d::dot(Math3d::cross(edgeAB, normal), toOrigin) > 0.0f)
 		return setLineDirection(simplex, direction);
 
-	if (dot(normal, toOrigin) > 0.0f) {
+	if (Math3d::dot(normal, toOrigin) > 0.0f) {
 		direction = normal;
 	} else {
 		std::swap(simplex.points[1], simplex.points[2]);
@@ -105,10 +92,10 @@ bool containsOrigin(GjkSimplex& simplex, Vec3& direction)
 
 	auto originOutsideFace = [&](const Vec3& faceB,
 		const Vec3& faceC, const Vec3& opposite) {
-		Vec3 normal = cross(faceB - pointA, faceC - pointA);
-		if (dot(normal, opposite - pointA) > 0.0f)
+		Vec3 normal = Math3d::cross(faceB - pointA, faceC - pointA);
+		if (Math3d::dot(normal, opposite - pointA) > 0.0f)
 			normal = -normal;
-		return dot(normal, toOrigin) > 0.0f;
+		return Math3d::dot(normal, toOrigin) > 0.0f;
 	};
 
 	if (originOutsideFace(pointB, pointC, pointD)) {
@@ -150,7 +137,7 @@ bool intersectGjk(const SupportFunction& supportA,
 			break;
 
 		Vec3 point = supportA(direction) - supportB(-direction);
-		if (dot(point, direction) <= 0.0f)
+		if (Math3d::dot(point, direction) <= 0.0f)
 			break;
 
 		for (uint32_t index = std::min(simplex.size, 3u); index > 0; --index)

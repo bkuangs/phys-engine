@@ -1,8 +1,9 @@
 #include <phys/world/physics_world.hpp>
+#include <phys/collision/narrowphase.hpp>
 #include <phys/dynamics/integrator.hpp>
 #include <phys/solver/sequential_impulse_solver.hpp>
 #include <chrono>
-#include <cmath>
+#include <algorithm>
 #include <utility>
 
 namespace phys {
@@ -191,7 +192,7 @@ void PhysicsWorld::step(float dt)
         slot.collider.bounds = Aabb::fromCollider(slot.collider, bodyTransform);
     }
 
-    // BROAD-PHASE: Collect AABB-overlapping sphere pairs as candidates.
+    // BROAD-PHASE: Collect AABB-overlapping collider pairs as candidates.
     auto broadPhaseStart = Clock::now();
     std::vector<std::pair<uint32_t, uint32_t>> candidatePairs;
     std::size_t possiblePairs = 0;
@@ -215,7 +216,7 @@ void PhysicsWorld::step(float dt)
     stats.possiblePairs = possiblePairs;
     stats.candidatePairs = candidatePairs.size();
 
-    // Narrow-phase: exact sphere-sphere test on each candidate pair.
+    // NARROW-PHASE: dispatch each candidate pair to the shape-specific query.
     auto narrowPhaseStart = Clock::now();
     currentContacts.clear();
 
@@ -227,25 +228,32 @@ void PhysicsWorld::step(float dt)
         const RigidBody* bodyB = getBody(secondSlot.collider.body);
         if (!bodyA || !bodyB) continue;
 
-        Vec3 delta = bodyB->getPosition() - bodyA->getPosition();
-        float distanceSquared = delta.x * delta.x + delta.y * delta.y + delta.z * delta.z;
-        const Sphere& sphereA = std::get<Sphere>(firstSlot.collider.shape);
-        const Sphere& sphereB = std::get<Sphere>(secondSlot.collider.shape);
-        float radii = sphereA.radius + sphereB.radius;
-        if (distanceSquared >= radii * radii) continue;
-
-        float distance = std::sqrt(distanceSquared);
-        Vec3 normal = distance > 1e-6f
-            ? delta * (1.0f / distance) : Vec3{1.0f, 0.0f, 0.0f};
+        Transform bodyTransformA{bodyA->getPosition(), bodyA->getRotation()};
+        Transform bodyTransformB{bodyB->getPosition(), bodyB->getRotation()};
+        Transform transformA{
+            bodyTransformA.position
+                + bodyTransformA.orientation.rotate(
+                    firstSlot.collider.localTransform.position),
+            bodyTransformA.orientation
+                * firstSlot.collider.localTransform.orientation
+        };
+        Transform transformB{
+            bodyTransformB.position
+                + bodyTransformB.orientation.rotate(
+                    secondSlot.collider.localTransform.position),
+            bodyTransformB.orientation
+                * secondSlot.collider.localTransform.orientation
+        };
 
         ContactManifold manifold;
-        manifold.bodyA = firstSlot.collider.body;
-        manifold.bodyB = secondSlot.collider.body;
-        manifold.normal = normal;
-        manifold.restitution = std::max(bodyA->restitution, bodyB->restitution);
-        manifold.pointCount = 1;
-        manifold.points[0].penetration = radii - distance;
-        currentContacts.push_back(manifold);
+        if (NarrowPhase::generateContact(
+                firstSlot.collider, transformA,
+                secondSlot.collider, transformB,
+                manifold)) {
+            manifold.restitution = std::max(
+                bodyA->restitution, bodyB->restitution);
+            currentContacts.push_back(manifold);
+        }
     }
     stats.narrowPhaseMs = elapsedMs(narrowPhaseStart);
     stats.contactCount = currentContacts.size();

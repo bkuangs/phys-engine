@@ -15,7 +15,7 @@ public:
 
     static float dot(Vec3 a, Vec3 b);
 
-    static float cross(Vec3 a, Vec3 b);
+    static Vec3 cross(Vec3 a, Vec3 b);
 
     static float sin(float radians);
 

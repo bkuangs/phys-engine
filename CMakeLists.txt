@@ -6,6 +6,7 @@ option(PHYS_BUILD_SANDBOX "Build the headless sandbox entry point" ON)
 option(PHYS_BUILD_BENCHMARKS "Build the benchmark entry points" OFF)
 
 add_library(phys STATIC
+    src/math/math_utils.cpp
     src/dynamics/rigid_body.cpp
     src/dynamics/mass_properties.cpp
     src/dynamics/integrator.cpp
