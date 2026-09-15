@@ -1,12 +1,42 @@
 #pragma once
-#include "phys/math/vec3.hpp"
+#include "phys/collision/collider.hpp"
+#include "phys/collision/manifold.hpp"
+#include "phys/collision/shapes/box.hpp"
+#include "phys/collision/shapes/sphere.hpp"
+#include "phys/math/transform.hpp"
 
 namespace phys {
 
 class NarrowPhase
 {
 public:
-    static bool intersectSphereSphere(Vec3 cA, float rA, Vec3 cB, float rB, Vec3& normal, float& depth);
+    static bool intersectSphereSphere(
+        const Sphere& sphereA,
+        const Transform& transformA,
+        const Sphere& sphereB,
+        const Transform& transformB,
+        ContactManifold& manifold);
+
+    static bool intersectSphereBox(
+        const Sphere& sphere,
+        const Transform& sphereTransform,
+        const Box& box,
+        const Transform& boxTransform,
+        ContactManifold& manifold);
+
+    static bool intersectBoxBox(
+        const Box& boxA,
+        const Transform& transformA,
+        const Box& boxB,
+        const Transform& transformB,
+        ContactManifold& manifold);
+
+    static bool generateContact(
+        const Collider& a,
+        const Transform& transformA,
+        const Collider& b,
+        const Transform& transformB,
+        ContactManifold& manifold);
 };
 
 }
