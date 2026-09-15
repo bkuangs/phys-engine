@@ -44,4 +44,8 @@ inline Vec3 operator*(float scalar, Vec3 value) {
     return value * scalar;
 }
 
+inline Vec3 operator/(Vec3 value, float scalar) {
+    return {value.x / scalar, value.y / scalar, value.z / scalar};
+}
+
 }
