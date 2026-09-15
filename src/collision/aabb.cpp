@@ -12,13 +12,14 @@ Aabb Aabb::fromCollider(const Collider& collider, const Transform& bodyTransform
         bodyTransform.orientation * collider.localTransform.orientation
     };
 
-    if (collider.type == ShapeType::Sphere) {
-        Vec3 radius{collider.sphere.radius, collider.sphere.radius, collider.sphere.radius};
+    if (std::holds_alternative<Sphere>(collider.shape)) {
+        const Sphere& sphere = std::get<Sphere>(collider.shape);
+        Vec3 radius{sphere.radius, sphere.radius, sphere.radius};
         return {worldTransform.position - radius, worldTransform.position + radius};
     }
 
-    // ConvexHull uses an empty bound until hull vertex storage is introduced.
-    Vec3 halfExtents = collider.box.halfExtents;
+    const Box& box = std::get<Box>(collider.shape);
+    Vec3 halfExtents = box.halfExtents;
     Mat3 m = worldTransform.orientation.toMat3();
 
     Vec3 worldExtent{

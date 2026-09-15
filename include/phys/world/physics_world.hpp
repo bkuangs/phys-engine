@@ -32,8 +32,8 @@ public:
         float density, bool isStatic, float restitution, RigidBodyHandle& body,
         ColliderHandle& collider, std::string& errorMessage);
 
-    // Returns nullptr if the handle is stale (body removed / never valid).
-    // Do not hold the returned pointer across another addBody/removeBody call.
+    // Returns nullptr if the handle is stale.
+    // Use the returned pointer only for immediate work!
     RigidBody* getBody(RigidBodyHandle handle);
     const RigidBody* getBody(RigidBodyHandle handle) const;
 
@@ -43,12 +43,8 @@ public:
     const Collider* getCollider(ColliderHandle handle) const;
     const std::vector<ContactManifold>& contacts() const { return currentContacts; }
 
-    // Advances the simulation by a fixed timestep. See docs/architecture.md
-    // "Step pipeline" for stage ordering; stages are stubbed until their
-    // owning subsystems (Integrator, BroadPhase, NarrowPhase, Solver) exist.
     void step(float dt);
 
-    // Per-stage timings/counts recorded during the most recent step().
     const StepStats& lastStepStats() const { return stats; }
 
 private:

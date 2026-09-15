@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <variant>
 #include "phys/collision/aabb.hpp"
 #include "phys/collision/shapes/box.hpp"
 #include "phys/collision/shapes/sphere.hpp"
@@ -8,14 +9,7 @@
 
 namespace phys {
 
-enum class ShapeType
-{
-    Sphere,
-    Box,
-    ConvexHull
-};
-
-struct ColliderHandle
+struct ColliderHandle       // one body can have multiple colliders
 {
     uint32_t index = 0;
     uint32_t generation = 0;
@@ -30,9 +24,7 @@ struct Collider
 {
     RigidBodyHandle body{};
     Transform localTransform{};
-    ShapeType type = ShapeType::Sphere;
-    Sphere sphere{};
-    Box box{};
+    std::variant<Sphere, Box> shape = Sphere{}; // hold several alternative types at any given time
     Aabb bounds{};
 };
 

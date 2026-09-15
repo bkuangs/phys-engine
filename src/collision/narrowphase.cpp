@@ -5,21 +5,31 @@ namespace phys {
 
 using math = Math3d;
 
-bool NarrowPhase::intersectSphereSphere(Vec3 cA, float rA, Vec3 cB, float rB, Vec3& normal, float& depth)
+bool NarrowPhase::intersectSphereSphere(
+    const Sphere& sphereA,
+    const Transform& transformA,
+    const Sphere& sphereB,
+    const Transform& transformB,
+    ContactManifold& manifold)
 {
-    normal = Vec3::zero();
-    depth = 0.f;
-
-    float d = math::distance(cA, cB);
-    float radii = rA + rB;
+    float d = math::distance(transformA->position, transformB->position);
+    float radii = sphereA->radius + sphereB->radius;
 
     if (d >= radii) return false;       // spheres are not touching
 
-    normal = math::normalize(cB - cA);  // A -> B (which direction we need to push B)
-    depth = radii - d;
+    Vec3 n = math::normalize(transformB->position - transformA->position);
+    
+    
 
     return true;
 }
+
+bool NarrowPhase::generateContact(
+    const Collider& a,
+    const Transform& transformA,
+    const Collider& b,
+    const Transform& transformB,
+    ContactManifold& manifold);
 
 // TODO: Dispatch supported shape pairs and generate contact manifolds.
 

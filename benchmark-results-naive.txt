@@ -1,0 +1,132 @@
+Bodies:                     100
+Simulation frequency:       120.00 Hz
+
+Step time:
+    mean:                    0.07 ms
+    p50:                     0.07 ms
+    p95:                     0.09 ms
+    p99:                     0.09 ms
+    max:                     0.09 ms
+
+Deadline misses (>8.33ms):   0 / 10
+
+Broadphase:
+    possible pairs:          4950
+    candidate pairs:         36
+    broadphase time:         0.05 ms
+
+Narrowphase time:            0.00 ms
+Solver time:                 0.01 ms
+
+Heap allocations / step:     9
+
+Bodies:                     500
+Simulation frequency:       120.00 Hz
+
+Step time:
+    mean:                    1.08 ms
+    p50:                     1.06 ms
+    p95:                     1.13 ms
+    p99:                     1.13 ms
+    max:                     1.21 ms
+
+Deadline misses (>8.33ms):   0 / 10
+
+Broadphase:
+    possible pairs:          124750
+    candidate pairs:         176
+    broadphase time:         0.96 ms
+
+Narrowphase time:            0.01 ms
+Solver time:                 0.02 ms
+
+Heap allocations / step:     11
+
+Bodies:                     1000
+Simulation frequency:       120.00 Hz
+
+Step time:
+    mean:                    4.09 ms
+    p50:                     4.08 ms
+    p95:                     4.15 ms
+    p99:                     4.15 ms
+    max:                     4.46 ms
+
+Deadline misses (>8.33ms):   0 / 10
+
+Broadphase:
+    possible pairs:          499500
+    candidate pairs:         355
+    broadphase time:         3.86 ms
+
+Narrowphase time:            0.03 ms
+Solver time:                 0.05 ms
+
+Heap allocations / step:     12
+
+Bodies:                     2500
+Simulation frequency:       120.00 Hz
+
+Step time:
+    mean:                    25.33 ms
+    p50:                     25.23 ms
+    p95:                     25.64 ms
+    p99:                     25.64 ms
+    max:                     26.30 ms
+
+Deadline misses (>8.33ms):   10 / 10
+
+Broadphase:
+    possible pairs:          3123750
+    candidate pairs:         937
+    broadphase time:         24.73 ms
+
+Narrowphase time:            0.09 ms
+Solver time:                 0.13 ms
+
+Heap allocations / step:     14
+
+Bodies:                     5000
+Simulation frequency:       120.00 Hz
+
+Step time:
+    mean:                    100.24 ms
+    p50:                     99.60 ms
+    p95:                     101.98 ms
+    p99:                     102.93 ms
+    max:                     102.97 ms
+
+Deadline misses (>8.33ms):   100 / 100
+
+Broadphase:
+    possible pairs:          12497500
+    candidate pairs:         1597
+    broadphase time:         99.15 ms
+
+Narrowphase time:            0.21 ms
+Solver time:                 0.07 ms
+
+Heap allocations / step:     12
+
+Bodies:                     10000
+Simulation frequency:       120.00 Hz
+
+Step time:
+    mean:                    402.33 ms
+    p50:                     402.24 ms
+    p95:                     407.81 ms
+    p99:                     408.71 ms
+    max:                     408.93 ms
+
+Deadline misses (>8.33ms):   25 / 25
+
+Broadphase:
+    possible pairs:          49995000
+    candidate pairs:         3149
+    broadphase time:         399.77 ms
+
+Narrowphase time:            0.59 ms
+Solver time:                 0.29 ms
+
+Heap allocations / step:     14
+

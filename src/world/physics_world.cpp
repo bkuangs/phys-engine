@@ -20,7 +20,7 @@ double elapsedMs(Clock::time_point start)
 
 RigidBodyHandle PhysicsWorld::addBody(const RigidBody& body)
 {
-    if (!freeList.empty()) {
+    if (!freeList.empty()) {                     // re-use deleted bodies
         uint32_t index = freeList.back();
         freeList.pop_back();
 
@@ -45,10 +45,12 @@ bool PhysicsWorld::createSphere(float radius, Vec3 position, float density,
     }
 
     body = addBody(createdBody);
+
+    // Create global collision geometry and link Collider to RigidBody.
+    // Tells the engine that a new sphere is physically occupying space.
     Collider createdCollider;
     createdCollider.body = body;
-    createdCollider.type = ShapeType::Sphere;
-    createdCollider.sphere.radius = radius;
+    createdCollider.shape = Sphere{radius};
     collider = addCollider(createdCollider);
     return true;
 }
@@ -66,23 +68,25 @@ bool PhysicsWorld::createBox(float width, float height, float depth, Vec3 positi
     body = addBody(createdBody);
     Collider createdCollider;
     createdCollider.body = body;
-    createdCollider.type = ShapeType::Box;
-    createdCollider.box.halfExtents = {width * 0.5f, height * 0.5f, depth * 0.5f};
+    createdCollider.shape = Box{{width * 0.5f, height * 0.5f, depth * 0.5f}};
     collider = addCollider(createdCollider);
     return true;
 }
 
 void PhysicsWorld::removeBody(RigidBodyHandle handle)
 {
-    if (handle.index >= slots.size()) return;
+    if (handle.index >= slots.size()) return;           // index out of bounds
 
     Slot& slot = slots[handle.index];
+
+    // Check that the slot is being used and reject old handles
     if (!slot.alive || slot.generation != handle.generation) return;
 
     slot.alive = false;
     slot.generation++;
     freeList.push_back(handle.index);
 
+    // Remove all colliders belonging to this body
     for (uint32_t index = 0; index < colliderSlots.size(); ++index) {
         ColliderSlot& colliderSlot = colliderSlots[index];
         if (colliderSlot.alive && colliderSlot.collider.body == handle) {
@@ -168,12 +172,15 @@ void PhysicsWorld::step(float dt)
     auto stepStart = Clock::now();
 
     auto velocityStart = Clock::now();
+
+    // Apply gravity to active bodies
     for (Slot& slot : slots) {
         if (!slot.alive) continue;
         integrateVelocity(slot.body, gravity, dt);
     }
     stats.integrateVelocityMs = elapsedMs(velocityStart);
 
+    // Get world-space collider AABBs from current body poses
     for (ColliderSlot& slot : colliderSlots) {
         if (!slot.alive) continue;
 
@@ -184,18 +191,18 @@ void PhysicsWorld::step(float dt)
         slot.collider.bounds = Aabb::fromCollider(slot.collider, bodyTransform);
     }
 
-    // Broad-phase: collect AABB-overlapping sphere pairs as candidates.
+    // BROAD-PHASE: Collect AABB-overlapping sphere pairs as candidates.
     auto broadPhaseStart = Clock::now();
     std::vector<std::pair<uint32_t, uint32_t>> candidatePairs;
     std::size_t possiblePairs = 0;
 
     for (uint32_t first = 0; first < colliderSlots.size(); ++first) {
         ColliderSlot& firstSlot = colliderSlots[first];
-        if (!firstSlot.alive || firstSlot.collider.type != ShapeType::Sphere) continue;
+        if (!firstSlot.alive) continue;
 
         for (uint32_t second = first + 1; second < colliderSlots.size(); ++second) {
             ColliderSlot& secondSlot = colliderSlots[second];
-            if (!secondSlot.alive || secondSlot.collider.type != ShapeType::Sphere) continue;
+            if (!secondSlot.alive) continue;
             if (firstSlot.collider.body == secondSlot.collider.body) continue;
 
             ++possiblePairs;
@@ -222,7 +229,9 @@ void PhysicsWorld::step(float dt)
 
         Vec3 delta = bodyB->getPosition() - bodyA->getPosition();
         float distanceSquared = delta.x * delta.x + delta.y * delta.y + delta.z * delta.z;
-        float radii = firstSlot.collider.sphere.radius + secondSlot.collider.sphere.radius;
+        const Sphere& sphereA = std::get<Sphere>(firstSlot.collider.shape);
+        const Sphere& sphereB = std::get<Sphere>(secondSlot.collider.shape);
+        float radii = sphereA.radius + sphereB.radius;
         if (distanceSquared >= radii * radii) continue;
 
         float distance = std::sqrt(distanceSquared);

@@ -85,6 +85,25 @@ physics to rendering: bodies, candidate pairs, manifolds, contact points, solver
 iterations, and per-stage cost. Benchmarks should use fixed seeds and disclose
 workload, build configuration, hardware, and algorithm settings.
 
+## Hot-path principles
+
+`PhysicsWorld::step()` and the code it calls form the simulation hot path:
+integration, broad phase, narrow phase, contact generation, and solving. Body
+and collider creation is usually a cold path, so it may favor simpler, clearer
+allocation and ownership. The step path should favor predictable work:
+
+- reserve body, pair, manifold, and contact buffers during initialization;
+- reuse storage and target zero allocations per step;
+- avoid file I/O, logging, and unnecessary locking;
+- prefer contiguous iteration and explicit handling of inactive entries;
+- measure stage costs and allocation counts rather than assuming improvements.
+
+The important distinction is not whether a loop is hot, but whether its work is
+unbounded or unpredictable. Future performance studies may compare array-of-
+structures with structure-of-arrays storage, measure parallel narrow-phase
+scaling, and test determinism by repeating fixed-seed simulations and comparing
+their resulting state.
+
 The eventual debugger should support pause, single-step, and reset, and display
 collider wireframes, AABBs, normals, contacts, centers of mass, angular
 velocities, and candidate pairs. None of these controls or overlays exist yet.
