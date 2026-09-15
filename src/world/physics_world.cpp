@@ -216,7 +216,7 @@ void PhysicsWorld::step(float dt)
     stats.possiblePairs = possiblePairs;
     stats.candidatePairs = candidatePairs.size();
 
-    // NARROW-PHASE: dispatch each candidate pair to the shape-specific query.
+    // NARROW-PHASE: Each candidate pair gets delegated to shape-specific query.
     auto narrowPhaseStart = Clock::now();
     currentContacts.clear();
 
