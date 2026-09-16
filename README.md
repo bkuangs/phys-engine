@@ -13,6 +13,8 @@ cmake --build build --target phys_sandbox
 The sandbox uses a muted object palette, a one-unit ground grid, and a compact
 object/contact-count overlay. Contact normals are shown in pale gold; dark sphere
 markers make rotation visible. It requests 4x MSAA where supported. Press `Esc` to quit.
+Shapes and box outlines follow the full collider pose, including body rotation
+and collider-local offsets and rotations.
 
 The overlay uses [IBM Plex Sans](https://github.com/IBM/plex/tree/78cd4223d8de9fcb78cba84eadecb269c56093c5),
 bundled under the [SIL Open Font License](assets/fonts/LICENSE.txt). CMake copies

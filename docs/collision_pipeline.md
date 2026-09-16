@@ -42,7 +42,13 @@ parts of the current pipeline.
 
 The box-box query progresses beyond a boolean overlap result and produces up
 to four contact points. A full reference/incident-face clipping algorithm is
-not yet used. If GJK and EPA are added later, GJK will answer convex
+not yet used. Support-face vertices must lie inside the other box before
+projection, so lifted corners do not become artificial support points. Each
+accepted vertex gets its own penetration depth rather than sharing the deepest
+overlap across the face. Pairs with no contained support-face vertices retain
+the single-point overlap fallback.
+
+If GJK and EPA are added later, GJK will answer convex
 intersection queries and EPA will extract penetration information from a
 suitable intersecting simplex; both need explicit degeneracy, iteration-limit,
 and failure contracts. GJK plus EPA alone would not provide a stable

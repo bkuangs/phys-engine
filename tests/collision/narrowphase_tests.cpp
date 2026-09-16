@@ -1,5 +1,6 @@
 #include <phys/collision/narrowphase.hpp>
 #include <phys/math/math_utils.hpp>
+#include <array>
 #include <cmath>
 #include <iostream>
 
@@ -105,12 +106,77 @@ bool testBoxBoxNormalIsNormalized()
     return near(phys::Math3d::length(manifold.normal), 1.0f);
 }
 
+bool testTiltedBoxFloorContacts(float angle, float height, bool reverseOrder)
+{
+    phys::Collider floor{};
+    floor.shape = phys::Box{{9.0f, 0.5f, 4.0f}};
+    phys::Collider box{};
+    box.shape = phys::Box{{0.5f, 0.5f, 0.5f}};
+    phys::Transform floorTransform{{0.0f, -0.5f, 0.0f}, 0.0f};
+    phys::Transform boxTransform{{0.0f, height, 0.0f}, angle};
+    phys::ContactManifold manifold{};
+    bool hit = reverseOrder
+        ? phys::NarrowPhase::generateContact(
+            box, boxTransform, floor, floorTransform, manifold)
+        : phys::NarrowPhase::generateContact(
+            floor, floorTransform, box, boxTransform, manifold);
+    if (!hit) {
+        std::cerr << "tilted box-floor contact was not generated\n";
+        return false;
+    }
+
+    std::array<phys::Vec3, 4> expectedVertices{};
+    uint32_t expectedCount = 0;
+    for (float x : {-0.5f, 0.5f}) {
+        for (float z : {-0.5f, 0.5f}) {
+            phys::Vec3 vertex = phys::transform({x, -0.5f, z}, boxTransform);
+            if (vertex.y <= 0.0f)
+                expectedVertices[expectedCount++] = vertex;
+        }
+    }
+    if (manifold.pointCount != expectedCount) {
+        std::cerr << "expected " << expectedCount << " penetrating corners, got "
+            << manifold.pointCount << " contacts\n";
+        return false;
+    }
+    if (!expectVec("tilted box normal", manifold.normal,
+            {0.0f, reverseOrder ? -1.0f : 1.0f, 0.0f}))
+        return false;
+
+    for (uint32_t index = 0; index < expectedCount; ++index) {
+        const phys::Vec3& vertex = expectedVertices[index];
+        phys::Vec3 expectedContact{vertex.x, vertex.y * 0.5f, vertex.z};
+        bool found = false;
+        for (uint32_t pointIndex = 0; pointIndex < manifold.pointCount; ++pointIndex) {
+            const phys::ContactPoint& point = manifold.points[pointIndex];
+            phys::Vec3 anchorA = phys::transform(point.localAnchorA,
+                reverseOrder ? boxTransform : floorTransform);
+            phys::Vec3 anchorB = phys::transform(point.localAnchorB,
+                reverseOrder ? floorTransform : boxTransform);
+            if (near(anchorA, expectedContact) && near(anchorB, expectedContact)
+                && near(point.penetration, -vertex.y))
+                found = true;
+        }
+        if (!found) {
+            std::cerr << "missing tilted-box corner contact with its actual depth\n";
+            return false;
+        }
+    }
+    return true;
+}
+
 }
 
 int main()
 {
     if (!testSphereSphereAnchors() || !testBoxSphereAnchorOrder()
-        || !testBoxBoxNormalIsNormalized())
+        || !testBoxBoxNormalIsNormalized()
+        || !testTiltedBoxFloorContacts(0.3f,
+            0.5f * (std::sin(0.3f) + std::cos(0.3f)) - 0.02f, false)
+        || !testTiltedBoxFloorContacts(0.3f,
+            0.5f * (std::sin(0.3f) + std::cos(0.3f)) - 0.02f, true)
+        || !testTiltedBoxFloorContacts(0.1f, 0.3f, false)
+        || !testTiltedBoxFloorContacts(0.1f, 0.3f, true))
         return 1;
 
     return 0;

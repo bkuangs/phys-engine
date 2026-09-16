@@ -276,6 +276,7 @@ namespace phys
         Vec3 fallbackContact = normal * normalCoordinate + tangent1 * overlapMidpoint(boxA, transformA, boxB, transformB, tangent1) + tangent2 * overlapMidpoint(boxA, transformA, boxB, transformB, tangent2);
 
         std::array<Vec3, 4> contacts{};
+        std::array<float, 4> depths{};
         uint32_t contactCount = 0;
         auto addFaceCandidates = [&](const Box &sourceBox,
                                      const Transform &sourceTransform,
@@ -283,12 +284,20 @@ namespace phys
                                      const Transform &otherTransform,
                                      Vec3 faceDirection)
         {
+            float otherSurface = math::dot(boxSupportPoint(
+                otherBox, otherTransform, -faceDirection), faceDirection);
             for (const Vec3 &vertex : supportFaceVertices(
                      sourceBox, sourceTransform, faceDirection))
             {
-                Vec3 candidate = vertex + normal * (normalCoordinate - math::dot(vertex, normal));
-                if (pointInsideBox(candidate, otherBox, otherTransform) && contactCount < contacts.size() && !duplicatePoint(contacts, contactCount, candidate))
+                // Projecting a separated corner first creates a phantom support point.
+                if (!pointInsideBox(vertex, otherBox, otherTransform))
+                    continue;
+
+                float depth = std::max(math::dot(vertex, faceDirection) - otherSurface, 0.0f);
+                Vec3 candidate = vertex - faceDirection * (depth * 0.5f);
+                if (contactCount < contacts.size() && !duplicatePoint(contacts, contactCount, candidate))
                 {
+                    depths[contactCount] = depth;
                     contacts[contactCount++] = candidate;
                 }
             }
@@ -297,13 +306,16 @@ namespace phys
         addFaceCandidates(boxA, transformA, boxB, transformB, normal);
         addFaceCandidates(boxB, transformB, boxA, transformA, -normal);
         if (contactCount == 0)
+        {
+            depths[contactCount] = penetration;
             contacts[contactCount++] = fallbackContact;
+        }
 
         manifold.pointCount = contactCount;
         for (uint32_t index = 0; index < contactCount; ++index)
         {
             ContactPoint &point = manifold.points[index];
-            point.penetration = penetration;
+            point.penetration = depths[index];
             setAnchors(point, contacts[index], transformA,
                        contacts[index], transformB);
         }

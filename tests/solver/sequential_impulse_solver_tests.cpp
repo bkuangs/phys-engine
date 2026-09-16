@@ -1,5 +1,6 @@
 #include <phys/solver/sequential_impulse_solver.hpp>
 #include <phys/world/physics_world.hpp>
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 #include <string>
@@ -210,7 +211,7 @@ namespace
             world.step(1.0f / 60.0f);
 
         const phys::RigidBody *body = world.getBody(boxBody);
-        if (!body || body->getPosition().y < 0.19f || std::abs(body->getPosition().x + 1.5f) > 0.02f || std::abs(body->getLinearVelocity().x) > 0.02f || std::abs(body->getAngularVelocity().z) > 0.02f || world.contacts().empty() || world.contacts().front().pointCount < 2)
+        if (!body || body->getPosition().y < 0.68f || body->getPosition().y > 0.72f || std::abs(body->getPosition().x + 1.5f) > 0.02f || std::abs(body->getLinearVelocity().x) > 0.02f || std::abs(body->getAngularVelocity().z) > 0.02f || world.contacts().empty() || world.contacts().front().pointCount < 2)
         {
             std::cerr << "box fell through floor: y="
                       << (body ? body->getPosition().y : 0.0f)
@@ -221,9 +222,67 @@ namespace
         return true;
     }
 
+    bool testTiltedBoxSettlesFlat(float dt, float angle, phys::Vec3 axis)
+    {
+        phys::PhysicsWorld world;
+        world.gravity = {0.0f, -9.81f, 0.0f};
+        phys::RigidBodyHandle floorBody;
+        phys::RigidBodyHandle boxBody;
+        phys::ColliderHandle floorCollider;
+        phys::ColliderHandle boxCollider;
+        std::string error;
+        if (!world.createBox(18.0f, 1.0f, 8.0f, {0.0f, -0.5f, 0.0f},
+                             1.0f, true, 0.0f, 0.6f,
+                             floorBody, floorCollider, error) ||
+            !world.createBox(1.0f, 1.0f, 1.0f, {0.0f, 2.0f, 0.0f},
+                             1.0f, false, 0.0f, 0.55f,
+                             boxBody, boxCollider, error))
+        {
+            std::cerr << "tilted floor test setup failed: " << error << '\n';
+            return false;
+        }
+        phys::RigidBody *body = world.getBody(boxBody);
+        body->setAngularVelocity(axis * (2.0f * std::tan(angle * 0.5f)));
+        body->integrateRotation(1.0f);
+        body->setAngularVelocity({});
+
+        for (int step = 0; step < 600; ++step)
+            world.step(dt);
+
+        float lowestCorner = body->getPosition().y;
+        for (float x : {-0.5f, 0.5f})
+            for (float y : {-0.5f, 0.5f})
+                for (float z : {-0.5f, 0.5f})
+                    lowestCorner = std::min(lowestCorner, body->getPosition().y
+                        + body->getRotation().rotate({x, y, z}).y);
+        float alignment = std::max({
+            std::abs(body->getRotation().rotate({1.0f, 0.0f, 0.0f}).y),
+            std::abs(body->getRotation().rotate({0.0f, 1.0f, 0.0f}).y),
+            std::abs(body->getRotation().rotate({0.0f, 0.0f, 1.0f}).y)});
+        if (!(alignment >= 0.995f && lowestCorner >= -0.02f
+            && std::abs(body->getPosition().y - 0.5f) <= 0.03f
+            && phys::Math3d::length(body->getLinearVelocity()) <= 0.08f
+            && phys::Math3d::length(body->getAngularVelocity()) <= 0.1f))
+        {
+            std::cerr << "tilted box did not settle flat: dt=" << dt
+                      << ", alignment=" << alignment
+                      << ", lowest corner=" << lowestCorner
+                      << ", center height=" << body->getPosition().y << '\n';
+            return false;
+        }
+        return true;
+    }
+
 }
 
 int main()
 {
-    return testOffCenterContactProducesAngularVelocity() && testRestitutionUsesIncomingVelocity() && testFrictionConstrainsTangentialVelocity() && testWorldCombinesMaterialFriction() && testBoxLandsOnStaticFloor() ? 0 : 1;
+    return testOffCenterContactProducesAngularVelocity() && testRestitutionUsesIncomingVelocity()
+        && testFrictionConstrainsTangentialVelocity() && testWorldCombinesMaterialFriction()
+        && testBoxLandsOnStaticFloor()
+        && testTiltedBoxSettlesFlat(1.0f / 60.0f, 0.3f, {0.0f, 0.0f, 1.0f})
+        && testTiltedBoxSettlesFlat(1.0f / 120.0f, -0.6f, {1.0f, 0.0f, 0.0f})
+        && testTiltedBoxSettlesFlat(1.0f / 60.0f, 0.5f,
+            phys::Math3d::normalize({1.0f, 1.0f, 1.0f}))
+        ? 0 : 1;
 }

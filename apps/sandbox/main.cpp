@@ -1,4 +1,5 @@
 #include <raylib.h>
+#include <rlgl.h>
 #include <phys/world/physics_world.hpp>
 
 #include <algorithm>
@@ -34,7 +35,11 @@ namespace
         if (!body || !collider)
             return;
 
-        phys::Vec3 position = body->getPosition();
+        phys::Transform bodyTransform{body->getPosition(), body->getRotation()};
+        phys::Vec3 position = phys::transform(collider->localTransform.position,
+                                             bodyTransform);
+        phys::Quaternion orientation = bodyTransform.orientation *
+                                       collider->localTransform.orientation;
         Color color = body->isStatic
                           ? groundColor
                           : objectColors[object.body.index % objectColors.size()];
@@ -45,9 +50,7 @@ namespace
                 {position.x, position.y, position.z},
                 sphere->radius,
                 color);
-            phys::Vec3 axis = body->getRotation().rotate(
-                                  {1.0f, 0.0f, 0.0f}) *
-                              sphere->radius;
+            phys::Vec3 axis = orientation.rotate({1.0f, 0.0f, 0.0f}) * sphere->radius;
             DrawSphere(
                 {position.x + axis.x, position.y + axis.y, position.z + axis.z},
                 sphere->radius * 0.14f,
@@ -60,9 +63,18 @@ namespace
             box.halfExtents.x * 2.0f,
             box.halfExtents.y * 2.0f,
             box.halfExtents.z * 2.0f};
-        Vector3 center{position.x, position.y, position.z};
-        DrawCubeV(center, size, color);
-        DrawCubeWiresV(center, size, ColorBrightness(color, -0.3f));
+        phys::Mat3 rotation = orientation.toMat3();
+        // rlgl expects a column-major transform.
+        const float matrix[16]{
+            rotation.m00, rotation.m10, rotation.m20, 0.0f,
+            rotation.m01, rotation.m11, rotation.m21, 0.0f,
+            rotation.m02, rotation.m12, rotation.m22, 0.0f,
+            position.x, position.y, position.z, 1.0f};
+        rlPushMatrix();
+        rlMultMatrixf(matrix);
+        DrawCubeV({}, size, color);
+        DrawCubeWiresV({}, size, ColorBrightness(color, -0.3f));
+        rlPopMatrix();
     }
 
 } // namespace
