@@ -7,6 +7,40 @@ namespace phys {
 
 using math = Math3d;
 
+namespace {
+
+Vec3 toLocalPoint(const Vec3& worldPoint, const Transform& transform)
+{
+    return transform.orientation.conjugate().rotate(
+        worldPoint - transform.position);
+}
+
+Vec3 toWorldPoint(const Vec3& localPoint, const Transform& transform)
+{
+    return transform.position + transform.orientation.rotate(localPoint);
+}
+
+Vec3 boxSupportPoint(const Box& box, const Transform& transform, Vec3 direction)
+{
+    Vec3 localDirection = transform.orientation.conjugate().rotate(direction);
+    Vec3 localPoint{
+        localDirection.x >= 0.0f ? box.halfExtents.x : -box.halfExtents.x,
+        localDirection.y >= 0.0f ? box.halfExtents.y : -box.halfExtents.y,
+        localDirection.z >= 0.0f ? box.halfExtents.z : -box.halfExtents.z
+    };
+    return toWorldPoint(localPoint, transform);
+}
+
+void setAnchors(ContactPoint& point,
+    const Vec3& worldPointA, const Transform& transformA,
+    const Vec3& worldPointB, const Transform& transformB)
+{
+    point.localAnchorA = toLocalPoint(worldPointA, transformA);
+    point.localAnchorB = toLocalPoint(worldPointB, transformB);
+}
+
+}
+
 bool NarrowPhase::intersectSphereSphere(
     const Sphere& sphereA,
     const Transform& transformA,            // transform = world pos + orientation
@@ -25,7 +59,13 @@ bool NarrowPhase::intersectSphereSphere(
         : Vec3{1.0f, 0.0f, 0.0f};
 
     manifold.pointCount = 1;
-    manifold.points[0].penetration = radii - distance;
+    ContactPoint& point = manifold.points[0];
+    point.penetration = radii - distance;
+
+    Vec3 pointA = transformA.position + manifold.normal * sphereA.radius;
+    Vec3 pointB = transformB.position - manifold.normal * sphereB.radius;
+    Vec3 worldContact = (pointA + pointB) * 0.5f;
+    setAnchors(point, worldContact, transformA, worldContact, transformB);
 
     return true;
 }
@@ -100,7 +140,13 @@ bool NarrowPhase::intersectSphereBox(
 
     manifold.normal = boxTransform.orientation.rotate(normalLocal);
     manifold.pointCount = 1;
-    manifold.points[0].penetration = penetration;
+    ContactPoint& point = manifold.points[0];
+    point.penetration = penetration;
+
+    Vec3 boxPointWorld = toWorldPoint(closestLocal, boxTransform);
+    Vec3 spherePointWorld = sphereTransform.position + manifold.normal * sphere.radius;
+    Vec3 worldContact = (spherePointWorld + boxPointWorld) * 0.5f;
+    setAnchors(point, worldContact, sphereTransform, worldContact, boxTransform);
 
     return true;
 }
@@ -126,7 +172,13 @@ bool NarrowPhase::intersectBoxBox(
 
     manifold.normal = normal;
     manifold.pointCount = 1;
-    manifold.points[0].penetration = penetration;
+    ContactPoint& point = manifold.points[0];
+    point.penetration = penetration;
+
+    Vec3 pointA = boxSupportPoint(boxA, transformA, normal);
+    Vec3 pointB = boxSupportPoint(boxB, transformB, -normal);
+    Vec3 worldContact = (pointA + pointB) * 0.5f;
+    setAnchors(point, worldContact, transformA, worldContact, transformB);
 
     return true;
 }

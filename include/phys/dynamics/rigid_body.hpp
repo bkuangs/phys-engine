@@ -136,6 +136,8 @@ private:
     Quaternion rotation = Quaternion::identity();
     Vec3 angularVelo;
     Vec3 force;
+    Vec3 angularVelocity;
+    Mat3 inverseInertiaWorld;
 };
 
 }
