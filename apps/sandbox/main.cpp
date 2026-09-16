@@ -72,7 +72,7 @@ int main()
     phys::RigidBodyHandle body;
     phys::ColliderHandle collider;
 
-    world.createBox(18.0f, 1.0f, 8.0f, {0.0f, -2.0f, 0.0f},
+    world.createBox(18.0f, 1.0f, 8.0f, {0.0f, -0.5f, 0.0f},
                     1.0f, true, 0.1f, 0.6f, body, collider, error);
     objects.push_back({body, collider});
 
