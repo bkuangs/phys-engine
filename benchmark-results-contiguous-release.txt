@@ -1,0 +1,68 @@
+Headless SAP layout comparison
+Date:                       2026-09-16
+Indexed source:             9b9bc30
+Contiguous source:          9b9bc30 + uncommitted contiguous-record layout
+Build:                      Release, Apple Clang 17.0.0.17000604, arm64
+Compiler flags:             -O3 -DNDEBUG -std=c++20 -arch arm64
+Hardware:                   Apple M2, macOS
+Build command:              cmake --build build/release-bench --target phys_collision_bench -j 4
+Benchmark arguments:        10 (same arguments for both separately built executables)
+Workload:                   Seeded sphere field (seed 42), 120 Hz, no warmup
+Samples per run:            10 through 2500 bodies; 100 at 5000; 25 at 10000
+Protocol:                   Three runs per variant, sequential/interleaved; no concurrent benchmarks
+Summary:                    Median of each variant's three per-run means
+Change isolated:            Sort contiguous AABB/original-index records instead of an index array
+Unchanged:                  Full AABB overlap checks, output ordering, body filtering, scratch allocation policy
+Notes:                      Sphere-only workload; short runs remain sensitive to system load.
+                            Fresh indexed controls are used, not timings from an earlier session.
+
+Execution order: indexed-1, contiguous-1, contiguous-2, indexed-2, indexed-3, contiguous-3
+All sample, possible-pair, candidate-pair, and allocation counts match.
+
+Summary: median of three per-run means (ms), not pooled step percentiles
+Bodies  Indexed_step  Contiguous_step  Speedup  Indexed_broad  Contiguous_broad  Indexed_misses  Contiguous_misses
+   100          0.04             0.03    1.33x           0.01              0.01  0/30  0/30
+   500          0.25             0.16    1.56x           0.16              0.10  0/30  0/30
+  1000          0.46             0.40    1.15x           0.33              0.27  0/30  0/30
+  2500          1.58             1.38    1.14x           1.22              1.01  0/30  0/30
+  5000          3.43             2.94    1.17x           3.23              2.72  0/300  0/300
+ 10000         11.86             8.97    1.32x           9.64              7.89  75/75  28/75
+
+Per-run measurements: native benchmark output precision; all timings in ms
+variant,run,bodies,mean,p50,p95,p99,max,broadphase,narrowphase,solver,misses,samples,possible,candidates,allocations
+indexed,1,100,0.07,0.07,0.1,0.1,0.13,0.03,0.0,0.03,0,10,4950,33,15
+indexed,1,500,0.41,0.45,0.49,0.49,0.54,0.27,0.02,0.11,0,10,124750,179,17
+indexed,1,1000,0.86,0.97,1.04,1.04,1.15,0.61,0.03,0.2,0,10,499500,347,18
+indexed,1,2500,2.37,2.44,3.02,3.02,3.02,1.81,0.07,0.45,0,10,3123750,923,20
+indexed,1,5000,3.48,3.32,4.72,5.75,5.79,3.26,0.04,0.12,0,100,12497500,1435,18
+indexed,1,10000,11.86,9.6,13.24,17.96,44.81,9.64,0.28,1.81,25,25,49995000,2969,20
+indexed,2,100,0.03,0.03,0.04,0.04,0.06,0.01,0.0,0.01,0,10,4950,33,15
+indexed,2,500,0.18,0.2,0.21,0.21,0.26,0.12,0.01,0.05,0,10,124750,179,17
+indexed,2,1000,0.44,0.47,0.51,0.51,0.57,0.31,0.02,0.1,0,10,499500,347,18
+indexed,2,2500,1.54,1.68,1.76,1.76,1.77,1.17,0.04,0.29,0,10,3123750,923,20
+indexed,2,5000,3.41,3.34,4.43,4.7,4.74,3.21,0.04,0.11,0,100,12497500,1435,18
+indexed,2,10000,12.02,9.95,13.45,17.66,35.02,10.9,0.19,0.82,25,25,49995000,2969,20
+indexed,3,100,0.04,0.03,0.07,0.07,0.1,0.01,0.0,0.02,0,10,4950,33,15
+indexed,3,500,0.25,0.23,0.37,0.37,0.45,0.16,0.01,0.07,0,10,124750,179,17
+indexed,3,1000,0.46,0.49,0.57,0.57,0.59,0.33,0.02,0.11,0,10,499500,347,18
+indexed,3,2500,1.58,1.7,1.79,1.79,1.82,1.22,0.04,0.3,0,10,3123750,923,20
+indexed,3,5000,3.43,3.34,4.47,4.66,4.71,3.23,0.04,0.11,0,100,12497500,1435,18
+indexed,3,10000,10.36,9.6,13.05,13.08,13.27,9.31,0.12,0.81,25,25,49995000,2969,20
+contiguous,1,100,0.04,0.04,0.07,0.07,0.08,0.02,0.0,0.02,0,10,4950,33,15
+contiguous,1,500,0.23,0.25,0.27,0.27,0.33,0.14,0.01,0.06,0,10,124750,179,17
+contiguous,1,1000,0.55,0.61,0.67,0.67,0.7,0.37,0.02,0.14,0,10,499500,347,18
+contiguous,1,2500,1.73,1.91,2.07,2.07,2.13,1.26,0.06,0.37,0,10,3123750,923,20
+contiguous,1,5000,2.94,2.81,4.23,4.55,4.66,2.72,0.05,0.11,0,100,12497500,1435,18
+contiguous,1,10000,8.83,8.09,11.78,11.79,11.92,7.77,0.13,0.82,7,25,49995000,2969,20
+contiguous,2,100,0.03,0.03,0.04,0.04,0.04,0.01,0.0,0.01,0,10,4950,33,15
+contiguous,2,500,0.16,0.17,0.2,0.2,0.23,0.1,0.01,0.05,0,10,124750,179,17
+contiguous,2,1000,0.4,0.44,0.47,0.47,0.49,0.27,0.02,0.1,0,10,499500,347,18
+contiguous,2,2500,1.36,1.48,1.59,1.59,1.61,1.0,0.04,0.29,0,10,3123750,923,20
+contiguous,2,5000,2.9,2.8,3.89,4.07,4.13,2.69,0.04,0.11,0,100,12497500,1435,18
+contiguous,2,10000,9.0,8.15,11.75,11.78,11.93,7.91,0.15,0.82,11,25,49995000,2969,20
+contiguous,3,100,0.03,0.03,0.05,0.05,0.05,0.01,0.0,0.01,0,10,4950,33,15
+contiguous,3,500,0.15,0.17,0.19,0.19,0.22,0.1,0.01,0.04,0,10,124750,179,17
+contiguous,3,1000,0.4,0.44,0.47,0.47,0.48,0.27,0.02,0.1,0,10,499500,347,18
+contiguous,3,2500,1.38,1.53,1.59,1.59,1.62,1.01,0.04,0.3,0,10,3123750,923,20
+contiguous,3,5000,2.94,2.84,4.01,4.18,4.28,2.73,0.04,0.11,0,100,12497500,1435,18
+contiguous,3,10000,8.97,8.22,11.65,11.77,12.06,7.89,0.15,0.82,10,25,49995000,2969,20

@@ -27,6 +27,9 @@ cmake -S . -B build -DPHYS_BUILD_BENCHMARKS=ON
 cmake --build build --config Debug
 ```
 
+See [performance history](docs/performance.md) for Debug/Release baselines,
+the measured sweep-and-prune gains, methodology, and reproduction commands.
+
 ## Pipeline
 
 ```text

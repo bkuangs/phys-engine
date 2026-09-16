@@ -13,8 +13,10 @@ Body poses + collider local transforms
 ## Broad phase
 
 The current broad phase uses single-threaded, single-axis sweep-and-prune
-(SAP). Active collider AABBs are sorted by minimum X each step. The sweep
-checks later entries until their minimum X exceeds the current maximum X,
+(SAP). AABBs and their original input indices are stored together in contiguous
+scratch records, then sorted by minimum X each step. The sweep reads these
+records directly rather than following sorted indices into an unsorted array.
+The sweep checks later entries until their minimum X exceeds the current maximum X,
 then stops; the remaining AABB axes reject false candidates. Touching bounds
 are included. Dense overlap along X can still require quadratic scanning.
 A candidate means only that a narrow-phase query may be necessary.
