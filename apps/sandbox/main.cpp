@@ -14,11 +14,12 @@ namespace
         phys::ColliderHandle collider;
     };
 
-    Color colorForShape(const phys::Collider &collider)
+    Color colorForShape(const phys::Collider &collider, bool isStatic)
     {
         return std::holds_alternative<phys::Sphere>(collider.shape)
                    ? Color{185, 185, 185, 255}
-                   : Color{125, 125, 125, 255};
+                   : (isStatic ? Color{75, 75, 75, 255}
+                               : Color{145, 145, 145, 255});
     }
 
     void drawObject(const phys::PhysicsWorld &world,
@@ -30,7 +31,7 @@ namespace
             return;
 
         phys::Vec3 position = body->getPosition();
-        Color color = colorForShape(*collider);
+        Color color = colorForShape(*collider, body->isStatic);
 
         if (const auto *sphere = std::get_if<phys::Sphere>(&collider->shape))
         {
@@ -38,12 +39,12 @@ namespace
                 {position.x, position.y, position.z},
                 sphere->radius,
                 color);
-                DrawSphereWires(
-                {position.x, position.y, position.z},
-                sphere->radius,
-                12,
-                8,
-                DARKGRAY);
+            phys::Vec3 axis = body->getRotation().rotate(
+                {1.0f, 0.0f, 0.0f}) * sphere->radius;
+            DrawSphere(
+                {position.x + axis.x, position.y + axis.y, position.z + axis.z},
+                sphere->radius * 0.14f,
+                BLACK);
             return;
         }
 
@@ -125,7 +126,6 @@ int main()
         ClearBackground({220, 220, 220, 255});
         BeginMode3D(camera);
 
-        DrawGrid(24, 1.0f);
         for (const RenderObject &object : objects)
             drawObject(world, object);
 
@@ -136,12 +136,17 @@ int main()
             if (!bodyA || !bodyB)
                 continue;
 
-            phys::Vec3 midpoint = (bodyA->getPosition() + bodyB->getPosition()) * 0.5f;
-            phys::Vec3 end = midpoint + contact.normal;
-            DrawLine3D(
-                {midpoint.x, midpoint.y, midpoint.z},
-                {end.x, end.y, end.z},
-                BLACK);
+            for (uint32_t index = 0; index < contact.pointCount; ++index)
+            {
+                const phys::ContactPoint &point = contact.points[index];
+                phys::Vec3 anchorA = bodyA->getPosition() +
+                                     bodyA->getRotation().rotate(point.localAnchorA);
+                phys::Vec3 end = anchorA + contact.normal * 0.5f;
+                DrawLine3D(
+                    {anchorA.x, anchorA.y, anchorA.z},
+                    {end.x, end.y, end.z},
+                    BLACK);
+            }
         }
 
         EndMode3D();
