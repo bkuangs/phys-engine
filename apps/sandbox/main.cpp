@@ -46,7 +46,8 @@ namespace
                 sphere->radius,
                 color);
             phys::Vec3 axis = body->getRotation().rotate(
-                {1.0f, 0.0f, 0.0f}) * sphere->radius;
+                                  {1.0f, 0.0f, 0.0f}) *
+                              sphere->radius;
             DrawSphere(
                 {position.x + axis.x, position.y + axis.y, position.z + axis.z},
                 sphere->radius * 0.14f,
@@ -112,22 +113,25 @@ int main()
 
     // A larger deterministic pile makes stacking and resting contacts easier
     // to observe without introducing scene-generation dependencies.
-    for (int row = 0; row < 4; ++row) {
-        for (int column = 0; column < 5; ++column) {
+    for (int row = 0; row < 4; ++row)
+    {
+        for (int column = 0; column < 5; ++column)
+        {
             float x = -4.0f + static_cast<float>(column) * 2.0f;
             float y = 2.0f + static_cast<float>(row) * 1.8f;
             float size = 0.9f + 0.1f * static_cast<float>((row + column) % 3);
             world.createBox(size, size, size, {x, y, 0.0f},
-                1.0f, false, 0.05f, 0.55f, body, collider, error);
+                            1.0f, false, 0.05f, 0.55f, body, collider, error);
             objects.push_back({body, collider});
         }
     }
 
-    for (int index = 0; index < 8; ++index) {
+    for (int index = 0; index < 8; ++index)
+    {
         float x = -3.5f + static_cast<float>(index % 4) * 2.3f;
         float y = 10.0f + static_cast<float>(index / 4) * 1.8f;
         world.createSphere(0.55f, {x, y, 0.0f},
-            1.0f, false, 0.1f, 0.45f, body, collider, error);
+                           1.0f, false, 0.1f, 0.45f, body, collider, error);
         objects.push_back({body, collider});
     }
 

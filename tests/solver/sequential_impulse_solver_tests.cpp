@@ -196,7 +196,7 @@ namespace
         std::string error;
 
         if (!world.createBox(18.0f, 1.0f, 8.0f, {0.0f, -0.5f, 0.0f},
-                                 1.0f, true, 0.1f, 0.6f,
+                             1.0f, true, 0.1f, 0.6f,
                              floorBody, floorCollider, error) ||
             !world.createBox(1.4f, 1.4f, 1.4f, {-1.5f, 3.0f, 0.0f},
                              1.0f, false, 0.2f, 0.5f,
@@ -210,12 +210,7 @@ namespace
             world.step(1.0f / 60.0f);
 
         const phys::RigidBody *body = world.getBody(boxBody);
-        if (!body || body->getPosition().y < 0.19f
-            || std::abs(body->getPosition().x + 1.5f) > 0.02f
-            || std::abs(body->getLinearVelocity().x) > 0.02f
-            || std::abs(body->getAngularVelocity().z) > 0.02f
-            || world.contacts().empty()
-            || world.contacts().front().pointCount < 2)
+        if (!body || body->getPosition().y < 0.19f || std::abs(body->getPosition().x + 1.5f) > 0.02f || std::abs(body->getLinearVelocity().x) > 0.02f || std::abs(body->getAngularVelocity().z) > 0.02f || world.contacts().empty() || world.contacts().front().pointCount < 2)
         {
             std::cerr << "box fell through floor: y="
                       << (body ? body->getPosition().y : 0.0f)

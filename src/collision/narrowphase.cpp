@@ -63,7 +63,8 @@ namespace phys
             Vec3 localDirection = transform.orientation.conjugate().rotate(direction);
             int faceAxis = 0;
             float largest = std::abs(localDirection.x);
-            if (std::abs(localDirection.y) > largest) {
+            if (std::abs(localDirection.y) > largest)
+            {
                 faceAxis = 1;
                 largest = std::abs(localDirection.y);
             }
@@ -71,22 +72,25 @@ namespace phys
                 faceAxis = 2;
 
             float faceSign = faceAxis == 0
-                ? (localDirection.x >= 0.0f ? 1.0f : -1.0f)
-                : faceAxis == 1
-                    ? (localDirection.y >= 0.0f ? 1.0f : -1.0f)
-                    : (localDirection.z >= 0.0f ? 1.0f : -1.0f);
+                                 ? (localDirection.x >= 0.0f ? 1.0f : -1.0f)
+                             : faceAxis == 1
+                                 ? (localDirection.y >= 0.0f ? 1.0f : -1.0f)
+                                 : (localDirection.z >= 0.0f ? 1.0f : -1.0f);
             float extents[] = {
                 box.halfExtents.x, box.halfExtents.y, box.halfExtents.z};
             int firstAxis = (faceAxis + 1) % 3;
             int secondAxis = (faceAxis + 2) % 3;
             std::array<Vec3, 4> vertices{};
-            for (int index = 0; index < 4; ++index) {
+            for (int index = 0; index < 4; ++index)
+            {
                 float coordinates[] = {0.0f, 0.0f, 0.0f};
                 coordinates[faceAxis] = faceSign * extents[faceAxis];
                 coordinates[firstAxis] = (index & 1) != 0
-                    ? extents[firstAxis] : -extents[firstAxis];
+                                             ? extents[firstAxis]
+                                             : -extents[firstAxis];
                 coordinates[secondAxis] = (index & 2) != 0
-                    ? extents[secondAxis] : -extents[secondAxis];
+                                              ? extents[secondAxis]
+                                              : -extents[secondAxis];
                 vertices[index] = toWorldPoint(
                     {coordinates[0], coordinates[1], coordinates[2]}, transform);
             }
@@ -99,16 +103,15 @@ namespace phys
             Vec3 localPoint = transform.orientation.conjugate().rotate(
                 point - transform.position);
             constexpr float tolerance = 1e-4f;
-            return std::abs(localPoint.x) <= box.halfExtents.x + tolerance
-                && std::abs(localPoint.y) <= box.halfExtents.y + tolerance
-                && std::abs(localPoint.z) <= box.halfExtents.z + tolerance;
+            return std::abs(localPoint.x) <= box.halfExtents.x + tolerance && std::abs(localPoint.y) <= box.halfExtents.y + tolerance && std::abs(localPoint.z) <= box.halfExtents.z + tolerance;
         }
 
         bool duplicatePoint(const std::array<Vec3, 4> &points,
                             uint32_t count, const Vec3 &point)
         {
             constexpr float toleranceSquared = 1e-6f;
-            for (uint32_t index = 0; index < count; ++index) {
+            for (uint32_t index = 0; index < count; ++index)
+            {
                 Vec3 delta = points[index] - point;
                 if (math::dot(delta, delta) <= toleranceSquared)
                     return true;
@@ -270,11 +273,7 @@ namespace phys
         Vec3 tangent1 = math::normalize(math::cross(normal, tangentReference));
         Vec3 tangent2 = math::cross(normal, tangent1);
         float normalCoordinate = (math::dot(transformA.position, normal) + boxProjectedRadius(boxA, transformA, normal) + math::dot(transformB.position, normal) - boxProjectedRadius(boxB, transformB, normal)) * 0.5f;
-        Vec3 fallbackContact = normal * normalCoordinate
-            + tangent1 * overlapMidpoint(
-                boxA, transformA, boxB, transformB, tangent1)
-            + tangent2 * overlapMidpoint(
-                boxA, transformA, boxB, transformB, tangent2);
+        Vec3 fallbackContact = normal * normalCoordinate + tangent1 * overlapMidpoint(boxA, transformA, boxB, transformB, tangent1) + tangent2 * overlapMidpoint(boxA, transformA, boxB, transformB, tangent2);
 
         std::array<Vec3, 4> contacts{};
         uint32_t contactCount = 0;
@@ -282,14 +281,14 @@ namespace phys
                                      const Transform &sourceTransform,
                                      const Box &otherBox,
                                      const Transform &otherTransform,
-                                     Vec3 faceDirection) {
+                                     Vec3 faceDirection)
+        {
             for (const Vec3 &vertex : supportFaceVertices(
-                     sourceBox, sourceTransform, faceDirection)) {
-                Vec3 candidate = vertex + normal * (normalCoordinate
-                    - math::dot(vertex, normal));
-                if (pointInsideBox(candidate, otherBox, otherTransform)
-                    && contactCount < contacts.size()
-                    && !duplicatePoint(contacts, contactCount, candidate)) {
+                     sourceBox, sourceTransform, faceDirection))
+            {
+                Vec3 candidate = vertex + normal * (normalCoordinate - math::dot(vertex, normal));
+                if (pointInsideBox(candidate, otherBox, otherTransform) && contactCount < contacts.size() && !duplicatePoint(contacts, contactCount, candidate))
+                {
                     contacts[contactCount++] = candidate;
                 }
             }
@@ -301,11 +300,12 @@ namespace phys
             contacts[contactCount++] = fallbackContact;
 
         manifold.pointCount = contactCount;
-        for (uint32_t index = 0; index < contactCount; ++index) {
+        for (uint32_t index = 0; index < contactCount; ++index)
+        {
             ContactPoint &point = manifold.points[index];
             point.penetration = penetration;
             setAnchors(point, contacts[index], transformA,
-                contacts[index], transformB);
+                       contacts[index], transformB);
         }
 
         return true;
