@@ -64,6 +64,7 @@ One "sweep" means visiting every constraint once: 100 contacts x 10 sweeps = 1,0
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <utility>
 
 namespace phys
 {
@@ -74,6 +75,12 @@ namespace phys
 		float dot(const Vec3 &left, const Vec3 &right)
 		{
 			return left.x * right.x + left.y * right.y + left.z * right.z;
+		}
+
+		float distanceSquared(const Vec3 &left, const Vec3 &right)
+		{
+			Vec3 delta = left - right;
+			return dot(delta, delta);
 		}
 
 		struct PreparedContactPoint
@@ -152,9 +159,11 @@ namespace phys
 				preparedPoint.offsetA = bodyA->getRotation().rotate(point.localAnchorA);
 				preparedPoint.offsetB = bodyB->getRotation().rotate(point.localAnchorB);
 
+				// Prepare tangents for friction as well
 				Vec3 tangentReference = std::abs(manifold.normal.x) < 0.9f
 											? Vec3{1.0f, 0.0f, 0.0f}
 											: Vec3{0.0f, 1.0f, 0.0f};
+				// We need two tangent directions relative to the surface
 				preparedPoint.tangent1 = Math3d::cross(
 					manifold.normal, tangentReference);
 				float tangentLength = std::sqrt(dot(
@@ -165,6 +174,7 @@ namespace phys
 				preparedPoint.tangent2 = Math3d::cross(
 					manifold.normal, preparedPoint.tangent1);
 
+				// Initial incoming velocity
 				Vec3 velocityA = bodyA->getLinearVelocity() + Math3d::cross(bodyA->getAngularVelocity(), preparedPoint.offsetA);
 				Vec3 velocityB = bodyB->getLinearVelocity() + Math3d::cross(bodyB->getAngularVelocity(), preparedPoint.offsetB);
 				float incomingVelocityAlongNormal = dot(
@@ -176,6 +186,7 @@ namespace phys
 					preparedPoint.offsetB, manifold.normal);
 				preparedPoint.inverseEffectiveMass = bodyA->getInverseMass() + bodyB->getInverseMass() + dot(angularJacobianA, bodyA->getInverseInertiaWorld() * angularJacobianA) + dot(angularJacobianB, bodyB->getInverseInertiaWorld() * angularJacobianB);
 
+				// Tangent angular Jacobians: Rotation can make the contact point slide sideways even if the center of mass has zero sideways velocity.
 				Vec3 tangentAngularJacobianA = Math3d::cross(
 					preparedPoint.offsetA, preparedPoint.tangent1);
 				Vec3 tangentAngularJacobianB = Math3d::cross(
@@ -198,6 +209,41 @@ namespace phys
 			}
 
 			preparedContacts.push_back(prepared);
+		}
+
+		// Restore impulses from the previous step before the iterative solve.
+		// Local anchors provide a stable contact identity while body handles
+		// distinguish contacts belonging to different body pairs.
+		constexpr float cacheMatchDistanceSquared = 0.05f * 0.05f;
+		for (PreparedManifold &prepared : preparedContacts)
+		{
+			ContactManifold &manifold = *prepared.manifold;
+			RigidBody *bodyA = prepared.bodyA;
+			RigidBody *bodyB = prepared.bodyB;
+			for (uint32_t index = 0; index < manifold.pointCount; ++index)
+			{
+				ContactPoint &point = manifold.points[index];
+				PreparedContactPoint &preparedPoint = prepared.points[index];
+				if (preparedPoint.inverseEffectiveMass <= 0.0f)
+					continue;
+
+				for (const PhysicsWorld::CachedContact &cached : world.cachedContacts)
+				{
+					if (!(cached.bodyA == manifold.bodyA && cached.bodyB == manifold.bodyB) || distanceSquared(cached.localAnchorA, point.localAnchorA) > cacheMatchDistanceSquared || distanceSquared(cached.localAnchorB, point.localAnchorB) > cacheMatchDistanceSquared)
+						continue;
+
+					point.normalImpulse = std::max(cached.normalImpulse, 0.0f);
+					float tangentLimit = std::max(manifold.friction, 0.0f) * point.normalImpulse;
+					point.tangentImpulse1 = Math3d::clamp(
+						cached.tangentImpulse1, -tangentLimit, tangentLimit);
+					point.tangentImpulse2 = Math3d::clamp(
+						cached.tangentImpulse2, -tangentLimit, tangentLimit);
+					Vec3 warmImpulse = manifold.normal * point.normalImpulse + preparedPoint.tangent1 * point.tangentImpulse1 + preparedPoint.tangent2 * point.tangentImpulse2;
+					bodyA->applyImpulse(-warmImpulse, preparedPoint.offsetA);
+					bodyB->applyImpulse(warmImpulse, preparedPoint.offsetB);
+					break;
+				}
+			}
 		}
 
 		for (int iteration = 0; iteration < iterations; ++iteration)
@@ -230,7 +276,7 @@ namespace phys
 					float impulseDelta = -(velocityAlongNormal + preparedPoint.restitutionVelocity - preparedPoint.bias) / preparedPoint.inverseEffectiveMass;
 
 					// Clamp to feasible range ("projected").
-					// TODO: Friction constraints and warm-start application between sim steps
+					// TODO: Friction warm-start application between sim steps
 					float previousImpulse = point.normalImpulse;
 					point.normalImpulse = std::max(previousImpulse + impulseDelta, 0.0f);
 					float appliedImpulse = point.normalImpulse - previousImpulse;
@@ -278,6 +324,25 @@ namespace phys
 				}
 			}
 		}
+
+		std::vector<PhysicsWorld::CachedContact> nextCache;
+		nextCache.reserve(contacts.size() * 2);
+		for (const PreparedManifold &prepared : preparedContacts)
+		{
+			const ContactManifold &manifold = *prepared.manifold;
+			for (uint32_t index = 0; index < manifold.pointCount; ++index)
+			{
+				const ContactPoint &point = manifold.points[index];
+				nextCache.push_back({manifold.bodyA,
+									 manifold.bodyB,
+									 point.localAnchorA,
+									 point.localAnchorB,
+									 point.normalImpulse,
+									 point.tangentImpulse1,
+									 point.tangentImpulse2});
+			}
+		}
+		world.cachedContacts = std::move(nextCache);
 	}
 
 }

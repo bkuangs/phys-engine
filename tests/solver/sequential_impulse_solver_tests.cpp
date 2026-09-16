@@ -164,16 +164,18 @@ namespace
         std::string error;
 
         if (!world.createBox(2.0f, 2.0f, 2.0f, {}, 1.0f, true,
-                             0.0f, 0.25f, bodyA, colliderA, error)
-            || !world.createBox(2.0f, 2.0f, 2.0f, {}, 1.0f, false,
-                                0.0f, 1.0f, bodyB, colliderB, error)) {
+                             0.0f, 0.25f, bodyA, colliderA, error) ||
+            !world.createBox(2.0f, 2.0f, 2.0f, {}, 1.0f, false,
+                             0.0f, 1.0f, bodyB, colliderB, error))
+        {
             std::cerr << "world body creation failed: " << error << '\n';
             return false;
         }
 
         world.step(1.0f / 60.0f);
-        const auto& contacts = world.contacts();
-        if (contacts.empty() || !near(contacts.front().friction, 0.5f)) {
+        const auto &contacts = world.contacts();
+        if (contacts.empty() || !near(contacts.front().friction, 0.5f))
+        {
             std::cerr << "expected combined friction 0.5, got "
                       << (contacts.empty() ? 0.0f : contacts.front().friction)
                       << '\n';
@@ -187,8 +189,5 @@ namespace
 
 int main()
 {
-    return testOffCenterContactProducesAngularVelocity()
-        && testRestitutionUsesIncomingVelocity()
-        && testFrictionConstrainsTangentialVelocity()
-        && testWorldCombinesMaterialFriction() ? 0 : 1;
+    return testOffCenterContactProducesAngularVelocity() && testRestitutionUsesIncomingVelocity() && testFrictionConstrainsTangentialVelocity() && testWorldCombinesMaterialFriction() ? 0 : 1;
 }
