@@ -14,6 +14,7 @@ public:
 
     float mass{};
     float restitution{};
+    float friction{};
 
     bool isStatic{};
 
@@ -21,9 +22,11 @@ public:
         Vec3 position,
         float mass,
         float restitution,
+        float friction,
         bool isStatic)
         : mass(mass),
         restitution(restitution),
+        friction(friction),
         isStatic(isStatic),
         position(position),
         linearVelocity{},
@@ -72,11 +75,12 @@ public:
     }
 
     static bool createSphere(float radius, Vec3 position, float density,
-        bool isStatic, float restitution, RigidBody& body,
+        bool isStatic, float restitution, float friction, RigidBody& body,
         std::string& errorMessage);
 
     static bool createBox(float width, float height, float depth, Vec3 position,
-        float density, bool isStatic, float restitution, RigidBody& body,
+        float density, bool isStatic, float restitution, float friction,
+        RigidBody& body,
         std::string& errorMessage);
 
 private:

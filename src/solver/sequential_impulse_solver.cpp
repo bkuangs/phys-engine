@@ -63,6 +63,7 @@ One "sweep" means visiting every constraint once: 100 contacts x 10 sweeps = 1,0
 #include <phys/world/physics_world.hpp>
 #include <algorithm>
 #include <array>
+#include <cmath>
 
 namespace phys
 {
@@ -79,7 +80,11 @@ namespace phys
 		{
 			Vec3 offsetA{};
 			Vec3 offsetB{};
+			Vec3 tangent1{};
+			Vec3 tangent2{};
 			float inverseEffectiveMass = 0.0f;
+			float inverseTangentMass1 = 0.0f;
+			float inverseTangentMass2 = 0.0f;
 			float bias = 0.0f;
 			float restitutionVelocity = 0.0f;
 		};
@@ -102,17 +107,17 @@ namespace phys
 		const float inverseDt = 1.0f / std::max(dt, 1e-6f);
 
 		// Fixed terms while the Gauss-Seidel iterations update velocities.
-		// Incoming velocity is a "snapshot" of the restitution velocity we will need; this doesn't 
+		// Incoming velocity is a "snapshot" of the restitution velocity we will need; this doesn't
 		// change until the solver is done.
 
-		// What DOES change is the current velocity computed each iteration; eg. how much impulse is 
+		// What DOES change is the current velocity computed each iteration; eg. how much impulse is
 		// still needed before we reach our fixed target
 
 		// For example:
-			// initial velocity:     -10
-			// after iteration 1:     -4
-			// after iteration 2:      1
-			// after iteration 3:      5
+		// initial velocity:     -10
+		// after iteration 1:     -4
+		// after iteration 2:      1
+		// after iteration 3:      5
 
 		// If we recomputed restitution every time from current velo, the target itself would be changing
 		// as we are actively solving it
@@ -147,6 +152,19 @@ namespace phys
 				preparedPoint.offsetA = bodyA->getRotation().rotate(point.localAnchorA);
 				preparedPoint.offsetB = bodyB->getRotation().rotate(point.localAnchorB);
 
+				Vec3 tangentReference = std::abs(manifold.normal.x) < 0.9f
+											? Vec3{1.0f, 0.0f, 0.0f}
+											: Vec3{0.0f, 1.0f, 0.0f};
+				preparedPoint.tangent1 = Math3d::cross(
+					manifold.normal, tangentReference);
+				float tangentLength = std::sqrt(dot(
+					preparedPoint.tangent1, preparedPoint.tangent1));
+				if (tangentLength <= 1e-6f)
+					continue;
+				preparedPoint.tangent1 = preparedPoint.tangent1 / tangentLength;
+				preparedPoint.tangent2 = Math3d::cross(
+					manifold.normal, preparedPoint.tangent1);
+
 				Vec3 velocityA = bodyA->getLinearVelocity() + Math3d::cross(bodyA->getAngularVelocity(), preparedPoint.offsetA);
 				Vec3 velocityB = bodyB->getLinearVelocity() + Math3d::cross(bodyB->getAngularVelocity(), preparedPoint.offsetB);
 				float incomingVelocityAlongNormal = dot(
@@ -157,6 +175,18 @@ namespace phys
 				Vec3 angularJacobianB = Math3d::cross(
 					preparedPoint.offsetB, manifold.normal);
 				preparedPoint.inverseEffectiveMass = bodyA->getInverseMass() + bodyB->getInverseMass() + dot(angularJacobianA, bodyA->getInverseInertiaWorld() * angularJacobianA) + dot(angularJacobianB, bodyB->getInverseInertiaWorld() * angularJacobianB);
+
+				Vec3 tangentAngularJacobianA = Math3d::cross(
+					preparedPoint.offsetA, preparedPoint.tangent1);
+				Vec3 tangentAngularJacobianB = Math3d::cross(
+					preparedPoint.offsetB, preparedPoint.tangent1);
+				preparedPoint.inverseTangentMass1 = bodyA->getInverseMass() + bodyB->getInverseMass() + dot(tangentAngularJacobianA, bodyA->getInverseInertiaWorld() * tangentAngularJacobianA) + dot(tangentAngularJacobianB, bodyB->getInverseInertiaWorld() * tangentAngularJacobianB);
+
+				tangentAngularJacobianA = Math3d::cross(
+					preparedPoint.offsetA, preparedPoint.tangent2);
+				tangentAngularJacobianB = Math3d::cross(
+					preparedPoint.offsetB, preparedPoint.tangent2);
+				preparedPoint.inverseTangentMass2 = bodyA->getInverseMass() + bodyB->getInverseMass() + dot(tangentAngularJacobianA, bodyA->getInverseInertiaWorld() * tangentAngularJacobianA) + dot(tangentAngularJacobianB, bodyB->getInverseInertiaWorld() * tangentAngularJacobianB);
 				if (preparedPoint.inverseEffectiveMass <= 0.0f)
 					continue;
 
@@ -208,6 +238,43 @@ namespace phys
 
 					bodyA->applyImpulse(-impulse, offsetA);
 					bodyB->applyImpulse(impulse, offsetB);
+
+					if (preparedPoint.inverseTangentMass1 <= 0.0f || preparedPoint.inverseTangentMass2 <= 0.0f)
+						continue;
+
+					// Friction uses the current contact normal impulse as its limit.
+					// Each tangent is solved independently against the Coulomb box.
+					float tangentLimit = std::max(manifold.friction, 0.0f) * point.normalImpulse;
+					velocityA = bodyA->getLinearVelocity() + Math3d::cross(bodyA->getAngularVelocity(), offsetA);
+					velocityB = bodyB->getLinearVelocity() + Math3d::cross(bodyB->getAngularVelocity(), offsetB);
+					Vec3 relativeVelocity = velocityB - velocityA;
+
+					float tangentVelocity1 = dot(
+						relativeVelocity, preparedPoint.tangent1);
+					float tangentImpulseDelta1 = -tangentVelocity1 / preparedPoint.inverseTangentMass1;
+					float previousTangentImpulse1 = point.tangentImpulse1;
+					point.tangentImpulse1 = Math3d::clamp(
+						previousTangentImpulse1 + tangentImpulseDelta1,
+						-tangentLimit, tangentLimit);
+					float appliedTangentImpulse1 = point.tangentImpulse1 - previousTangentImpulse1;
+					Vec3 tangentImpulse = preparedPoint.tangent1 * appliedTangentImpulse1;
+					bodyA->applyImpulse(-tangentImpulse, offsetA);
+					bodyB->applyImpulse(tangentImpulse, offsetB);
+
+					velocityA = bodyA->getLinearVelocity() + Math3d::cross(bodyA->getAngularVelocity(), offsetA);
+					velocityB = bodyB->getLinearVelocity() + Math3d::cross(bodyB->getAngularVelocity(), offsetB);
+					relativeVelocity = velocityB - velocityA;
+					float tangentVelocity2 = dot(
+						relativeVelocity, preparedPoint.tangent2);
+					float tangentImpulseDelta2 = -tangentVelocity2 / preparedPoint.inverseTangentMass2;
+					float previousTangentImpulse2 = point.tangentImpulse2;
+					point.tangentImpulse2 = Math3d::clamp(
+						previousTangentImpulse2 + tangentImpulseDelta2,
+						-tangentLimit, tangentLimit);
+					float appliedTangentImpulse2 = point.tangentImpulse2 - previousTangentImpulse2;
+					tangentImpulse = preparedPoint.tangent2 * appliedTangentImpulse2;
+					bodyA->applyImpulse(-tangentImpulse, offsetA);
+					bodyB->applyImpulse(tangentImpulse, offsetB);
 				}
 			}
 		}

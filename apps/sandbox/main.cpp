@@ -70,19 +70,19 @@ int main()
     phys::ColliderHandle collider;
 
     world.createBox(18.0f, 1.0f, 8.0f, {0.0f, -2.0f, 0.0f},
-        1.0f, true, 0.1f, body, collider, error);
+        1.0f, true, 0.1f, 0.6f, body, collider, error);
     objects.push_back({body, collider});
 
     world.createBox(1.4f, 1.4f, 1.4f, {-1.5f, 3.0f, 0.0f},
-        1.0f, false, 0.2f, body, collider, error);
+        1.0f, false, 0.2f, 0.5f, body, collider, error);
     objects.push_back({body, collider});
 
     world.createBox(1.0f, 2.0f, 1.0f, {1.0f, 5.0f, 0.0f},
-        1.0f, false, 0.2f, body, collider, error);
+        1.0f, false, 0.2f, 0.5f, body, collider, error);
     objects.push_back({body, collider});
 
     world.createSphere(0.7f, {0.0f, 7.0f, 0.0f},
-        1.0f, false, 0.35f, body, collider, error);
+        1.0f, false, 0.35f, 0.4f, body, collider, error);
     objects.push_back({body, collider});
 
     Camera3D camera{

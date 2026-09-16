@@ -22,9 +22,9 @@ namespace
         std::string error;
 
         if (!phys::RigidBody::createBox(2.0f, 2.0f, 2.0f,
-                                        {0.0f, 0.0f, 0.0f}, 1.0f, true, 0.0f, staticBody, error) ||
+                                        {0.0f, 0.0f, 0.0f}, 1.0f, true, 0.0f, 0.0f, staticBody, error) ||
             !phys::RigidBody::createBox(2.0f, 2.0f, 2.0f,
-                                        {0.0f, 0.0f, 0.0f}, 1.0f, false, 0.0f, dynamicBody, error))
+                                        {0.0f, 0.0f, 0.0f}, 1.0f, false, 0.0f, 0.0f, dynamicBody, error))
         {
             std::cerr << "body creation failed: " << error << '\n';
             return false;
@@ -73,9 +73,9 @@ namespace
         std::string error;
 
         if (!phys::RigidBody::createBox(2.0f, 2.0f, 2.0f,
-                                        {0.0f, 0.0f, 0.0f}, 1.0f, true, 0.0f, staticBody, error) ||
+                                        {0.0f, 0.0f, 0.0f}, 1.0f, true, 0.0f, 0.0f, staticBody, error) ||
             !phys::RigidBody::createBox(2.0f, 2.0f, 2.0f,
-                                        {0.0f, 0.0f, 0.0f}, 1.0f, false, 0.5f, dynamicBody, error))
+                                        {0.0f, 0.0f, 0.0f}, 1.0f, false, 0.5f, 0.0f, dynamicBody, error))
         {
             std::cerr << "body creation failed: " << error << '\n';
             return false;
@@ -108,9 +108,87 @@ namespace
         return true;
     }
 
+    bool testFrictionConstrainsTangentialVelocity()
+    {
+        phys::RigidBody staticBody;
+        phys::RigidBody dynamicBody;
+        std::string error;
+
+        if (!phys::RigidBody::createBox(2.0f, 2.0f, 2.0f,
+                                        {0.0f, 0.0f, 0.0f}, 1.0f, true, 0.0f, 0.0f, staticBody, error) ||
+            !phys::RigidBody::createBox(2.0f, 2.0f, 2.0f,
+                                        {0.0f, 0.0f, 0.0f}, 1.0f, false, 0.0f, 0.0f, dynamicBody, error))
+        {
+            std::cerr << "body creation failed: " << error << '\n';
+            return false;
+        }
+
+        dynamicBody.setLinearVelocity({1.0f, -1.0f, 0.0f});
+
+        phys::PhysicsWorld world;
+        phys::RigidBodyHandle bodyA = world.addBody(staticBody);
+        phys::RigidBodyHandle bodyB = world.addBody(dynamicBody);
+
+        phys::ContactManifold manifold{};
+        manifold.bodyA = bodyA;
+        manifold.bodyB = bodyB;
+        manifold.normal = {0.0f, 1.0f, 0.0f};
+        manifold.pointCount = 1;
+        manifold.friction = 0.5f;
+
+        std::vector<phys::ContactManifold> contacts{manifold};
+        phys::SequentialImpulseSolver::solve(contacts, world, 1.0f / 60.0f);
+
+        const phys::RigidBody *solvedBody = world.getBody(bodyB);
+        if (!solvedBody || !near(solvedBody->getLinearVelocity().y, 0.0f) || !near(solvedBody->getLinearVelocity().x, 0.5f))
+        {
+            std::cerr << "expected velocity x=0.5, y=0, got x="
+                      << (solvedBody ? solvedBody->getLinearVelocity().x : 0.0f)
+                      << " and y="
+                      << (solvedBody ? solvedBody->getLinearVelocity().y : 0.0f)
+                      << '\n';
+            return false;
+        }
+
+        return true;
+    }
+
+    bool testWorldCombinesMaterialFriction()
+    {
+        phys::PhysicsWorld world;
+        world.gravity = phys::Vec3::zero();
+        phys::RigidBodyHandle bodyA;
+        phys::RigidBodyHandle bodyB;
+        phys::ColliderHandle colliderA;
+        phys::ColliderHandle colliderB;
+        std::string error;
+
+        if (!world.createBox(2.0f, 2.0f, 2.0f, {}, 1.0f, true,
+                             0.0f, 0.25f, bodyA, colliderA, error)
+            || !world.createBox(2.0f, 2.0f, 2.0f, {}, 1.0f, false,
+                                0.0f, 1.0f, bodyB, colliderB, error)) {
+            std::cerr << "world body creation failed: " << error << '\n';
+            return false;
+        }
+
+        world.step(1.0f / 60.0f);
+        const auto& contacts = world.contacts();
+        if (contacts.empty() || !near(contacts.front().friction, 0.5f)) {
+            std::cerr << "expected combined friction 0.5, got "
+                      << (contacts.empty() ? 0.0f : contacts.front().friction)
+                      << '\n';
+            return false;
+        }
+
+        return true;
+    }
+
 }
 
 int main()
 {
-    return testOffCenterContactProducesAngularVelocity() && testRestitutionUsesIncomingVelocity() ? 0 : 1;
+    return testOffCenterContactProducesAngularVelocity()
+        && testRestitutionUsesIncomingVelocity()
+        && testFrictionConstrainsTangentialVelocity()
+        && testWorldCombinesMaterialFriction() ? 0 : 1;
 }

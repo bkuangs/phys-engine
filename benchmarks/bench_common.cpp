@@ -28,6 +28,7 @@ PhysicsWorld makeSphereField(int bodyCount, unsigned seed)
             1.0f,
             false,
             0.5f,
+            0.5f,
             body,
             collider,
             error

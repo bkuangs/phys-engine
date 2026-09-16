@@ -3,6 +3,7 @@
 #include <phys/solver/sequential_impulse_solver.hpp>
 #include <chrono>
 #include <algorithm>
+#include <cmath>
 #include <utility>
 
 namespace phys {
@@ -35,12 +36,12 @@ RigidBodyHandle PhysicsWorld::addBody(const RigidBody& body)
 }
 
 bool PhysicsWorld::createSphere(float radius, Vec3 position, float density,
-    bool isStatic, float restitution, RigidBodyHandle& body,
+    bool isStatic, float restitution, float friction, RigidBodyHandle& body,
     ColliderHandle& collider, std::string& errorMessage)
 {
     RigidBody createdBody;
     if (!RigidBody::createSphere(radius, position, density, isStatic,
-        restitution, createdBody, errorMessage)) {
+        restitution, friction, createdBody, errorMessage)) {
         return false;
     }
 
@@ -56,12 +57,13 @@ bool PhysicsWorld::createSphere(float radius, Vec3 position, float density,
 }
 
 bool PhysicsWorld::createBox(float width, float height, float depth, Vec3 position,
-    float density, bool isStatic, float restitution, RigidBodyHandle& body,
+    float density, bool isStatic, float restitution, float friction,
+    RigidBodyHandle& body,
     ColliderHandle& collider, std::string& errorMessage)
 {
     RigidBody createdBody;
     if (!RigidBody::createBox(width, height, depth, position, density, isStatic,
-        restitution, createdBody, errorMessage)) {
+        restitution, friction, createdBody, errorMessage)) {
         return false;
     }
 
@@ -260,6 +262,9 @@ void PhysicsWorld::step(float dt)
             }
             manifold.restitution = std::max(
                 bodyA->restitution, bodyB->restitution);
+            manifold.friction = std::sqrt(
+                std::max(bodyA->friction, 0.0f)
+                * std::max(bodyB->friction, 0.0f));
             currentContacts.push_back(manifold);
         }
     }

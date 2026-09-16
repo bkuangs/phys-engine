@@ -26,10 +26,12 @@ public:
     void removeBody(RigidBodyHandle handle);
 
     bool createSphere(float radius, Vec3 position, float density, bool isStatic,
-        float restitution, RigidBodyHandle& body, ColliderHandle& collider,
+        float restitution, float friction, RigidBodyHandle& body,
+        ColliderHandle& collider,
         std::string& errorMessage);
     bool createBox(float width, float height, float depth, Vec3 position,
-        float density, bool isStatic, float restitution, RigidBodyHandle& body,
+        float density, bool isStatic, float restitution, float friction,
+        RigidBodyHandle& body,
         ColliderHandle& collider, std::string& errorMessage);
 
     // Returns nullptr if the handle is stale.

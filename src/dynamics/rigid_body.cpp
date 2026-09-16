@@ -2,6 +2,7 @@
 #include <phys/core/constants.hpp>
 #include <phys/dynamics/mass_properties.hpp>
 #include <phys/math/math_utils.hpp>
+#include <algorithm>
 
 namespace phys {
 
@@ -20,7 +21,7 @@ bool validateDensity(float density, std::string& errorMessage)
 }
 
 bool RigidBody::createSphere(float radius, Vec3 position, float density,
-    bool isStatic, float restitution, RigidBody& body,
+    bool isStatic, float restitution, float friction, RigidBody& body,
     std::string& errorMessage)
 {
     errorMessage.clear();
@@ -38,8 +39,9 @@ bool RigidBody::createSphere(float radius, Vec3 position, float density,
     if (!validateDensity(density, errorMessage)) return false;
 
     restitution = Math3d::clamp(restitution, 0.0f, 1.0f);
+    friction = std::max(friction, 0.0f);
     const float mass = volume * density;
-    body = RigidBody(position, mass, restitution, isStatic);
+    body = RigidBody(position, mass, restitution, friction, isStatic);
     if (!isStatic)
         body.inverseInertiaLocal =
             MassProperties::sphereInverseInertia(mass, radius);
@@ -48,7 +50,8 @@ bool RigidBody::createSphere(float radius, Vec3 position, float density,
 }
 
 bool RigidBody::createBox(float width, float height, float depth, Vec3 position,
-    float density, bool isStatic, float restitution, RigidBody& body,
+    float density, bool isStatic, float restitution, float friction,
+    RigidBody& body,
     std::string& errorMessage)
 {
     errorMessage.clear();
@@ -70,8 +73,9 @@ bool RigidBody::createBox(float width, float height, float depth, Vec3 position,
     if (!validateDensity(density, errorMessage)) return false;
 
     restitution = Math3d::clamp(restitution, 0.0f, 1.0f);
+    friction = std::max(friction, 0.0f);
     const float mass = volume * density;
-    body = RigidBody(position, mass, restitution, isStatic);
+    body = RigidBody(position, mass, restitution, friction, isStatic);
     if (!isStatic)
         body.inverseInertiaLocal = MassProperties::boxInverseInertia(
             mass, width, height, depth);
