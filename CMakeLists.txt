@@ -46,6 +46,14 @@ if(PHYS_BUILD_SANDBOX)
     )
     target_link_libraries(phys_sandbox PRIVATE phys::phys raylib)
     set_target_properties(phys_sandbox PROPERTIES CXX_EXTENSIONS OFF)
+
+    add_custom_target(phys_sandbox_assets
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts"
+            "$<TARGET_FILE_DIR:phys_sandbox>/assets/fonts"
+        VERBATIM
+    )
+    add_dependencies(phys_sandbox phys_sandbox_assets)
 endif()
 
 if(PHYS_BUILD_BENCHMARKS)

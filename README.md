@@ -10,6 +10,15 @@ cmake --build build --target phys_sandbox
 ./build/phys_sandbox
 ```
 
+The sandbox uses a muted object palette, a one-unit ground grid, and a compact
+object/contact-count overlay. Contact normals are shown in pale gold; dark sphere
+markers make rotation visible. It requests 4x MSAA where supported. Press `Esc` to quit.
+
+The overlay uses [IBM Plex Sans](https://github.com/IBM/plex/tree/78cd4223d8de9fcb78cba84eadecb269c56093c5),
+bundled under the [SIL Open Font License](assets/fonts/LICENSE.txt). CMake copies
+the font and license to `assets/fonts` beside the executable; keep that directory
+with the executable when moving it. No system font installation is needed.
+
 For benchmarking:
 ```sh
 cmake -S . -B build -DPHYS_BUILD_BENCHMARKS=ON

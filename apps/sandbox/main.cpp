@@ -2,25 +2,29 @@
 #include <phys/world/physics_world.hpp>
 
 #include <algorithm>
+#include <array>
 #include <string>
 #include <vector>
 
 namespace
 {
 
+    constexpr Color backgroundColor{245, 242, 235, 255};
+    constexpr Color groundColor{76, 87, 99, 255};
+    constexpr Color gridColor{92, 103, 115, 255};
+    constexpr Color contactColor{245, 214, 147, 255};
+    constexpr Color secondaryTextColor{170, 184, 195, 255};
+    constexpr std::array<Color, 3> objectColors{{
+        {93, 164, 158, 255},
+        {218, 133, 112, 255},
+        {224, 183, 93, 255},
+    }};
+
     struct RenderObject
     {
         phys::RigidBodyHandle body;
         phys::ColliderHandle collider;
     };
-
-    Color colorForShape(const phys::Collider &collider, bool isStatic)
-    {
-        return std::holds_alternative<phys::Sphere>(collider.shape)
-                   ? Color{185, 185, 185, 255}
-                   : (isStatic ? Color{75, 75, 75, 255}
-                               : Color{145, 145, 145, 255});
-    }
 
     void drawObject(const phys::PhysicsWorld &world,
                     const RenderObject &object)
@@ -31,7 +35,9 @@ namespace
             return;
 
         phys::Vec3 position = body->getPosition();
-        Color color = colorForShape(*collider, body->isStatic);
+        Color color = body->isStatic
+                          ? groundColor
+                          : objectColors[object.body.index % objectColors.size()];
 
         if (const auto *sphere = std::get_if<phys::Sphere>(&collider->shape))
         {
@@ -44,7 +50,7 @@ namespace
             DrawSphere(
                 {position.x + axis.x, position.y + axis.y, position.z + axis.z},
                 sphere->radius * 0.14f,
-                BLACK);
+                ColorBrightness(color, -0.5f));
             return;
         }
 
@@ -55,15 +61,28 @@ namespace
             box.halfExtents.z * 2.0f};
         Vector3 center{position.x, position.y, position.z};
         DrawCubeV(center, size, color);
-        DrawCubeWiresV(center, size, BLACK);
+        DrawCubeWiresV(center, size, ColorBrightness(color, -0.3f));
     }
 
 } // namespace
 
 int main()
 {
+    SetConfigFlags(FLAG_MSAA_4X_HINT);
     InitWindow(1280, 720, "phys-engine sandbox");
     SetTargetFPS(60);
+
+    const std::string fontPath = std::string(GetApplicationDirectory()) +
+                                 "assets/fonts/IBMPlexSans-Regular.ttf";
+    Font uiFont = LoadFontEx(fontPath.c_str(), 40, nullptr, 0);
+    if (uiFont.texture.id == 0 || uiFont.texture.id == GetFontDefault().texture.id)
+    {
+        TraceLog(LOG_ERROR, "SANDBOX: Failed to load UI font: %s", fontPath.c_str());
+        UnloadFont(uiFont);
+        CloseWindow();
+        return 1;
+    }
+    SetTextureFilter(uiFont.texture, TEXTURE_FILTER_BILINEAR);
 
     phys::PhysicsWorld world;
     world.gravity = {0.0f, -9.81f, 0.0f};
@@ -73,7 +92,9 @@ int main()
     phys::RigidBodyHandle body;
     phys::ColliderHandle collider;
 
-    world.createBox(18.0f, 1.0f, 8.0f, {0.0f, -0.5f, 0.0f},
+    constexpr float groundWidth = 18.0f;
+    constexpr float groundDepth = 8.0f;
+    world.createBox(groundWidth, 1.0f, groundDepth, {0.0f, -0.5f, 0.0f},
                     1.0f, true, 0.1f, 0.6f, body, collider, error);
     objects.push_back({body, collider});
 
@@ -123,11 +144,20 @@ int main()
         world.step(dt);
 
         BeginDrawing();
-        ClearBackground({220, 220, 220, 255});
+        ClearBackground(backgroundColor);
         BeginMode3D(camera);
 
         for (const RenderObject &object : objects)
             drawObject(world, object);
+
+        // Lift the grid slightly above the platform to avoid z-fighting.
+        constexpr float gridHeight = 0.01f;
+        for (float x = -groundWidth * 0.5f; x <= groundWidth * 0.5f; x += 1.0f)
+            DrawLine3D({x, gridHeight, -groundDepth * 0.5f},
+                       {x, gridHeight, groundDepth * 0.5f}, gridColor);
+        for (float z = -groundDepth * 0.5f; z <= groundDepth * 0.5f; z += 1.0f)
+            DrawLine3D({-groundWidth * 0.5f, gridHeight, z},
+                       {groundWidth * 0.5f, gridHeight, z}, gridColor);
 
         for (const phys::ContactManifold &contact : world.contacts())
         {
@@ -145,20 +175,34 @@ int main()
                 DrawLine3D(
                     {anchorA.x, anchorA.y, anchorA.z},
                     {end.x, end.y, end.z},
-                    BLACK);
+                    contactColor);
             }
         }
 
         EndMode3D();
-        DrawText("ESC to quit | grayscale spheres, boxes, and contacts",
-             20, 20, 20, BLACK);
-        DrawText(TextFormat("objects: %u  contacts: %u",
-                    static_cast<unsigned>(objects.size()),
-                    static_cast<unsigned>(world.contacts().size())),
-             20, 48, 20, BLACK);
+        DrawRectangleRounded({20.0f, 20.0f, 260.0f, 144.0f}, 0.12f, 6,
+                             {35, 43, 53, 242});
+        DrawTextEx(uiFont, "Physics sandbox", {38.0f, 34.0f},
+                   20.0f, 0.0f, backgroundColor);
+        DrawLine(38, 64, 262, 64, {66, 78, 90, 255});
+        DrawTextEx(uiFont, "Objects", {38.0f, 74.0f},
+                   13.0f, 0.0f, secondaryTextColor);
+        DrawTextEx(uiFont, "Contacts", {164.0f, 74.0f},
+                   13.0f, 0.0f, secondaryTextColor);
+        DrawTextEx(uiFont, TextFormat("%u", static_cast<unsigned>(objects.size())),
+                   {38.0f, 90.0f}, 24.0f, 0.0f, backgroundColor);
+        DrawTextEx(uiFont, TextFormat("%u", static_cast<unsigned>(world.contacts().size())),
+                   {164.0f, 90.0f}, 24.0f, 0.0f, backgroundColor);
+        DrawRectangleRounded({38.0f, 130.0f, 32.0f, 18.0f}, 0.3f, 4,
+                             {66, 78, 90, 255});
+        DrawTextEx(uiFont, "Esc", {45.0f, 132.0f},
+                   12.0f, 0.0f, backgroundColor);
+        DrawTextEx(uiFont, "Quit", {78.0f, 131.0f},
+                   14.0f, 0.0f, secondaryTextColor);
         EndDrawing();
     }
 
+    UnloadFont(uiFont);
     CloseWindow();
     return 0;
 }

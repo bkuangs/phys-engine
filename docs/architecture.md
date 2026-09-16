@@ -1,7 +1,6 @@
 # Architecture
 
-This document describes the intended design, not implemented behavior.
-The repository currently contains build plumbing and declarations only.
+Design principles behind the engine.
 
 ## Boundaries
 
@@ -13,27 +12,19 @@ The repository currently contains build plumbing and declarations only.
 | Collision | Geometry, bounds, candidate generation, contact generation |
 | Solver | Velocity response from contact constraints |
 | World | Simulation ownership, lifetime management, and stage ordering |
-| Sandbox | Scenes, debug visualization, and user controls |
-| Benchmarks | Reproducible workloads and timing outside the engine algorithms |
 
-The library must not depend on the sandbox or a rendering backend. Collision
-queries must not apply impulses. The solver must not discover collisions.
-The world coordinates those responsibilities rather than implementing them.
+## Body vs. Collider
 
-## Body and collider separation
+We define a clean boundary between `RigidBody` and `Collider`:
+- **Rigid Body:** Physical object state and behavior
+- **Collider:** Geometric shape used for collision detection
 
-A rigid body represents motion: pose, linear/angular velocity, accumulated
-force/torque, and mass/inertia properties. A collider represents shape and local
-placement relative to a body. Do not introduce shape-specific rigid-body
-subclasses.
+The rigid body moves; the collider defines the space that moves with it. For example, a rolling ball has 
+a rigid body containing its mass, position, velocity, and rotation. It also has a sphere collider used to detect contact with the floor.  
 
-The design should leave room for several colliders on one body without
-requiring compound-body support in the first implementation. Body/collider
-ownership, stable references, creation, and removal semantics must be chosen
-before exposing a usable world API. Raw pointers into a growing vector are not
-a safe lifetime contract.
+The collider doesn't independently move or have velocity. Its world transform is derived from the rigid body’s transform plus the collider’s local transform.
 
-## Step pipeline
+## Step
 
 The desired orchestration is:
 
@@ -47,47 +38,11 @@ step(dt)
     integrate corrected velocities into positions / orientations
 ```
 
-Force integration and pose integration are separate stages of semi-implicit
-Euler. The collision stage sees the current poses, not a continuous sweep.
-Fast objects can therefore tunnel; continuous collision detection is a later,
-explicit extension rather than an implied guarantee.
+## Hot Path
 
-Before implementation, decide when accumulators are cleared and how cached
-collider bounds are refreshed or invalidated after pose integration. Queries
-and debug drawing must not accidentally expose stale bounds as current state.
+Efficient, real-time coding principles are a major point of interest and learning here.
 
-The caller should eventually advance the world with a fixed simulation step;
-wall-clock accumulation and rendering interpolation belong in the application.
-Timestep validation and substep policy are still undecided.
-
-## Deliberately open decisions
-
-| Decision | Resolve before |
-| --- | --- |
-| Scalar precision, units, handedness, numerical tolerances | Math implementation |
-| Matrix layout and multiplication convention; quaternion component/composition order | Rotation and transform implementation |
-| Normalization and degenerate-input policy | Numerical API implementation |
-| Static/dynamic body representation; mass/inverse-mass invariants | Rigid-body implementation |
-| Body/collider storage, handle validity, deletion, and ownership | World implementation |
-| Material ownership and friction/restitution combination | Contact response implementation |
-| Contact normal direction, coordinate spaces, penetration sign | Narrow-phase implementation |
-| Collision filtering, pair ordering, same-body/static-static policy | Broad-phase implementation |
-| Rendering backend and external dependency policy | Visual sandbox implementation |
-
-Forward declarations reserve names without settling data layouts, inheritance,
-method signatures, or ownership. Do not replace missing algorithms with
-success-shaped stubs.
-
-## Instrumentation
-
-Future instrumentation should expose counts and stage timings without coupling
-physics to rendering: bodies, candidate pairs, manifolds, contact points, solver
-iterations, and per-stage cost. Benchmarks should use fixed seeds and disclose
-workload, build configuration, hardware, and algorithm settings.
-
-## Hot-path principles
-
-`PhysicsWorld::step()` and the code it calls form the simulation hot path:
+`PhysicsWorld::step()` is the simulation "hot path":
 integration, broad phase, narrow phase, contact generation, and solving. Body
 and collider creation is usually a cold path, so it may favor simpler, clearer
 allocation and ownership. The step path should favor predictable work:
