@@ -1,4 +1,5 @@
 #include <phys/collision/narrowphase.hpp>
+#include <phys/math/math_utils.hpp>
 #include <cmath>
 #include <iostream>
 
@@ -83,11 +84,33 @@ bool testBoxSphereAnchorOrder()
             {0.0f, 0.75f, 0.0f});
 }
 
+bool testBoxBoxNormalIsNormalized()
+{
+    phys::Collider boxA{};
+    boxA.shape = phys::Box{{1.0f, 1.0f, 1.0f}};
+    phys::Collider boxB{};
+    boxB.shape = phys::Box{{1.0f, 1.0f, 1.0f}};
+    phys::Transform transformA{{0.0f, 0.0f, 0.0f},
+        phys::Quaternion::fromAxisAngle({0.0f, 1.0f, 0.0f}, 0.4f)};
+    phys::Transform transformB{{1.2f, 0.8f, 0.6f},
+        phys::Quaternion::fromAxisAngle({1.0f, 0.0f, 0.0f}, 0.7f)};
+    phys::ContactManifold manifold{};
+
+    if (!phys::NarrowPhase::generateContact(
+            boxA, transformA, boxB, transformB, manifold)) {
+        std::cerr << "box-box contact was not generated\n";
+        return false;
+    }
+
+    return near(phys::Math3d::length(manifold.normal), 1.0f);
+}
+
 }
 
 int main()
 {
-    if (!testSphereSphereAnchors() || !testBoxSphereAnchorOrder())
+    if (!testSphereSphereAnchors() || !testBoxSphereAnchorOrder()
+        || !testBoxBoxNormalIsNormalized())
         return 1;
 
     return 0;

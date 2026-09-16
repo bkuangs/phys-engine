@@ -38,6 +38,14 @@ inline Mat3 operator+(Mat3 left, const Mat3& right) {
     return left;
 }
 
+inline Mat3 transpose(const Mat3& value) {
+    return {
+        value.m00, value.m10, value.m20,
+        value.m01, value.m11, value.m21,
+        value.m02, value.m12, value.m22
+    };
+}
+
 inline Mat3 operator*(const Mat3& left, const Mat3& right) {
     return {
         left.m00 * right.m00 + left.m01 * right.m10 + left.m02 * right.m20,

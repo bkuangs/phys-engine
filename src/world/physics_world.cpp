@@ -249,6 +249,15 @@ void PhysicsWorld::step(float dt)
                 firstSlot.collider, transformA,
                 secondSlot.collider, transformB,
                 manifold)) {
+            for (uint32_t index = 0; index < manifold.pointCount; ++index) {
+                ContactPoint& point = manifold.points[index];
+                point.localAnchorA = firstSlot.collider.localTransform.position
+                    + firstSlot.collider.localTransform.orientation.rotate(
+                        point.localAnchorA);
+                point.localAnchorB = secondSlot.collider.localTransform.position
+                    + secondSlot.collider.localTransform.orientation.rotate(
+                        point.localAnchorB);
+            }
             manifold.restitution = std::max(
                 bodyA->restitution, bodyB->restitution);
             currentContacts.push_back(manifold);

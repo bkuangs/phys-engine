@@ -89,16 +89,29 @@ void SequentialImpulseSolver::solve(std::vector<ContactManifold>& contacts,
 			RigidBody* bodyB = world.getBody(manifold.bodyB);
 			if (!bodyA || !bodyB) continue;
 
-			float inverseMassSum = bodyA->getInverseMass() + bodyB->getInverseMass();
-			if (inverseMassSum <= 0.0f) continue;
-
 			// Loop through each contact point
 			for (uint32_t index = 0; index < manifold.pointCount; ++index) {
 
 				ContactPoint& point = manifold.points[index];
+				Vec3 offsetA = bodyA->getRotation().rotate(point.localAnchorA);
+				Vec3 offsetB = bodyB->getRotation().rotate(point.localAnchorB);
+				Vec3 velocityA = bodyA->getLinearVelocity()
+					+ Math3d::cross(bodyA->getAngularVelocity(), offsetA);
+				Vec3 velocityB = bodyB->getLinearVelocity()
+					+ Math3d::cross(bodyB->getAngularVelocity(), offsetB);
 
-				float velocityAlongNormal = dot(bodyB->getLinearVelocity()	// negative = moving towards, positive = moving away
-					- bodyA->getLinearVelocity(), manifold.normal);
+				float velocityAlongNormal = dot(
+					velocityB - velocityA, manifold.normal);
+
+				Vec3 angularJacobianA = Math3d::cross(offsetA, manifold.normal);
+				Vec3 angularJacobianB = Math3d::cross(offsetB, manifold.normal);
+				float inverseEffectiveMass = bodyA->getInverseMass()
+					+ bodyB->getInverseMass()
+					+ dot(angularJacobianA,
+						bodyA->getInverseInertiaWorld() * angularJacobianA)
+					+ dot(angularJacobianB,
+						bodyB->getInverseInertiaWorld() * angularJacobianB);
+				if (inverseEffectiveMass <= 0.0f) continue;
 
 				// Bias = how aggresive we want the corrective velocity to be
 				float bias = std::max(point.penetration - slop, 0.0f)
@@ -109,17 +122,17 @@ void SequentialImpulseSolver::solve(std::vector<ContactManifold>& contacts,
 				float restitutionVelocity = velocityAlongNormal < -1.0f
 					? manifold.restitution * velocityAlongNormal : 0.0f;
 				float impulseDelta = -(velocityAlongNormal + restitutionVelocity - bias)
-					/ inverseMassSum;
+					/ inverseEffectiveMass;
 
-				// Clamp to feasible range ("projected"); only linear normal constraints for now
-				// TODO: Angular response, friction constraints, and warm-start application between sim steps
+				// Clamp to feasible range ("projected").
+				// TODO: Friction constraints and warm-start application between sim steps
 				float previousImpulse = point.normalImpulse;
 				point.normalImpulse = std::max(previousImpulse + impulseDelta, 0.0f);
 				float appliedImpulse = point.normalImpulse - previousImpulse;
 				Vec3 impulse = manifold.normal * appliedImpulse;
 
-				bodyA->applyLinearImpulse(-impulse);
-				bodyB->applyLinearImpulse(impulse);
+				bodyA->applyImpulse(-impulse, offsetA);
+				bodyB->applyImpulse(impulse, offsetB);
 			}
 		}
 	}

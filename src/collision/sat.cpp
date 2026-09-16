@@ -42,16 +42,18 @@ float projectedRadius(const WorldBox& box, const Vec3& axis) {
 }
 
 // Returns false (separating axis found) or true with the overlap depth along axis.
-bool overlapOnAxis(const WorldBox& a, const WorldBox& b, Vec3 axis, float& depth) {
+bool overlapOnAxis(const WorldBox& a, const WorldBox& b, Vec3 axis,
+                   Vec3& normalizedAxis, float& depth) {
     float lengthSq = dot(axis, axis);
     if (lengthSq < 1e-8f) {
         depth = std::numeric_limits<float>::max();  // degenerate axis (parallel edges): ignore
         return true;
     }
-    axis = axis * (1.0f / std::sqrt(lengthSq));
+    normalizedAxis = axis * (1.0f / std::sqrt(lengthSq));
 
-    float distance = std::abs(dot(b.center - a.center, axis));
-    float depthOnAxis = (projectedRadius(a, axis) + projectedRadius(b, axis)) - distance;
+    float distance = std::abs(dot(b.center - a.center, normalizedAxis));
+    float depthOnAxis = (projectedRadius(a, normalizedAxis)
+        + projectedRadius(b, normalizedAxis)) - distance;
 
     if (depthOnAxis < 0.0f) return false;
 
@@ -73,23 +75,26 @@ bool testOBBOBB(const Box& a, const Transform& transformA,
     Vec3 axesB[3] = {worldB.axis(0), worldB.axis(1), worldB.axis(2)};
 
     for (const Vec3& axis : axesA) {
+        Vec3 normalizedAxis;
         float depth;
-        if (!overlapOnAxis(worldA, worldB, axis, depth)) return false;
-        if (depth < outDepth) { outDepth = depth; outAxis = axis; }
+        if (!overlapOnAxis(worldA, worldB, axis, normalizedAxis, depth)) return false;
+        if (depth < outDepth) { outDepth = depth; outAxis = normalizedAxis; }
     }
 
     for (const Vec3& axis : axesB) {
+        Vec3 normalizedAxis;
         float depth;
-        if (!overlapOnAxis(worldA, worldB, axis, depth)) return false;
-        if (depth < outDepth) { outDepth = depth; outAxis = axis; }
+        if (!overlapOnAxis(worldA, worldB, axis, normalizedAxis, depth)) return false;
+        if (depth < outDepth) { outDepth = depth; outAxis = normalizedAxis; }
     }
 
     for (const Vec3& edgeA : axesA) {
         for (const Vec3& edgeB : axesB) {
             Vec3 axis = cross(edgeA, edgeB);
+            Vec3 normalizedAxis;
             float depth;
-            if (!overlapOnAxis(worldA, worldB, axis, depth)) return false;
-            if (depth < outDepth) { outDepth = depth; outAxis = axis; }
+            if (!overlapOnAxis(worldA, worldB, axis, normalizedAxis, depth)) return false;
+            if (depth < outDepth) { outDepth = depth; outAxis = normalizedAxis; }
         }
     }
 
