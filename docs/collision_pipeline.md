@@ -12,7 +12,7 @@ Body poses + collider local transforms
 
 ## Broad phase
 
-The current broad phase uses single-threaded, single-axis sweep-and-prune
+The default broad phase uses single-threaded, single-axis sweep-and-prune
 (SAP). AABBs and their original input indices are stored together in contiguous
 scratch records, then sorted by minimum X each step. The sweep reads these
 records directly rather than following sorted indices into an unsorted array.
@@ -38,6 +38,52 @@ Later compare persistent SAP endpoints, a dynamic AABB tree, or another justifie
 spatial structure against the same workloads and baseline pair results.
 Report false-positive counts alongside timings; faster execution is not useful
 if valid pairs are lost.
+
+### Experimental uniform grid
+
+Set `PhysicsWorld::broadPhaseAlgorithm` to
+`BroadPhaseAlgorithm::UniformGrid` to opt into the grid prototype. SAP remains
+the default; both backends return the same canonical, sorted AABB-overlap pairs.
+The grid uses the upper median of positive maximum AABB side lengths as its
+cell width. An all-point/empty input uses a width of one.
+
+Each AABB is inserted into every cell it overlaps, including cells touched at
+its maximum boundary. Cell coordinates use `floor`, including for negative
+positions. Contiguous cell/index records are sorted, pairs within each cell are
+checked, and the output is sorted and deduplicated.
+
+An AABB spanning more than 64 cells, or outside the signed 32-bit cell-coordinate
+range, goes into an explicit overflow list instead of expanding into cells.
+Overflow AABBs are checked against regular objects and each other without
+dropping any pairs. This bounds cell storage, but many overflow objects can
+make the comparison path expensive. Wide-size workloads demonstrate this
+limitation; a large floor alone is much less costly.
+
+### Broad-phase measurements
+
+`StepStats` separates active-bound/index collection and final slot mapping/body
+filtering from the `BroadPhaseStats` returned by the geometry query. The latter
+times record construction, record sorting, the sweep, and output-pair sorting.
+The sweep timer includes overlap checks, pair emission, and output-vector
+growth. Timers are sampled at phase boundaries, never per pair. AABB
+recomputation precedes the broadphase timer; minor call/destruction overhead is
+included in the parent time but not assigned to an individual phase.
+
+`xWindowComparisons` counts pairs whose X intervals overlap, including touching
+intervals but excluding the probe that terminates each scan. It is accumulated
+once per outer sweep iteration. `aabbPairs` counts full AABB overlaps before
+same-body filtering; `candidatePairs` counts the pairs left after that filter.
+The first two counts include same-body pairs, unlike `possiblePairs`.
+For grid queries, the same four timing fields measure cell-width selection and
+entry construction, cell-entry sorting, bucket/overflow comparison, and output
+sorting/deduplication. `xWindowComparisons` is zero; `gridComparisons` counts
+actual AABB tests, including repeat tests in shared cells and overflow checks.
+`gridEntries`, `gridOverflowAabbs`, and `gridCellSize` expose storage amplification
+and the overflow policy. `aabbPairs` counts unique output pairs after deduplication.
+
+The optional query statistics are overwritten on every call, including empty
+queries. Benchmarks print mean phase durations and explicitly label the work
+counts as belonging to the last simulated step.
 
 ## Narrow phase
 
@@ -94,6 +140,10 @@ stability. Broad-phase coverage compares exact ordered pairs with an all-pairs
 reference for empty, touching, degenerate, dense, random, and moving bounds.
 World-level checks cover same-body filtering, collider-local transforms,
 inactive slots, and body/collider slot reuse.
+Both backends also match brute force for large floors, negative cell boundaries,
+extreme coordinates, and degenerate bounds. Grid-specific checks cover the exact
+64-cell threshold and duplicate suppression. A mixed sphere/rotating-box world
+is stepped with each backend and compared for matching poses and velocities.
 Additional coverage should include narrow-phase touching semantics, degenerate
 inputs, pair symmetry, and multi-point box manifolds.
 
@@ -103,3 +153,9 @@ and densely overlapping distributions. Collision workloads should isolate
 shape-pair queries from world stepping, scene setup, and visualization, and
 report false positives alongside timings. Benchmark runs should disclose
 workload, build configuration, hardware, and algorithm settings.
+
+`phys_broadphase_compare` isolates the two broadphase queries on uniform,
+clustered, mixed-size-with-floor, and wide-size AABB layouts. Its inputs are
+static between samples, and exact output equality is checked outside the timed
+query. These query timings must not be confused with the full-world sphere
+timings from `phys_collision_bench` and `phys_broadphase_bench`.

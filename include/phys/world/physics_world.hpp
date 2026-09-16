@@ -4,6 +4,7 @@
 #include "phys/core/constants.hpp"
 #include "phys/math/vec3.hpp"
 #include "phys/dynamics/rigid_body.hpp"
+#include "phys/collision/broadphase.hpp"
 #include "phys/collision/collider.hpp"
 #include "phys/collision/manifold.hpp"
 #include "phys/world/body_handle.hpp"
@@ -24,6 +25,7 @@ namespace phys
         static constexpr float maxDensity = BodyLimits::maxDensity;
 
         Vec3 gravity{0.0f, -9.81f, 0.0f};
+        BroadPhaseAlgorithm broadPhaseAlgorithm = BroadPhaseAlgorithm::SweepAndPrune;
 
         RigidBodyHandle addBody(const RigidBody &body);
         void removeBody(RigidBodyHandle handle);

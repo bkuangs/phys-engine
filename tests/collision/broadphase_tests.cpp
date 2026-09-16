@@ -2,22 +2,54 @@
 #include <phys/collision/narrowphase.hpp>
 #include <phys/world/physics_world.hpp>
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <iostream>
+#include <limits>
 #include <random>
 #include <vector>
 
 namespace {
 
-bool matchesBruteForce(const std::vector<phys::Aabb>& bounds)
+bool matchesBruteForce(const std::vector<phys::Aabb>& bounds,
+                       phys::BroadPhaseAlgorithm algorithm)
 {
     std::vector<phys::BroadPhasePair> expected;
-    for (std::size_t first = 0; first < bounds.size(); ++first)
-        for (std::size_t second = first + 1; second < bounds.size(); ++second)
+    std::size_t expectedXComparisons = 0;
+    for (std::size_t first = 0; first < bounds.size(); ++first) {
+        for (std::size_t second = first + 1; second < bounds.size(); ++second) {
+            if (bounds[first].min.x <= bounds[second].max.x
+                && bounds[first].max.x >= bounds[second].min.x)
+                ++expectedXComparisons;
             if (bounds[first].overlaps(bounds[second]))
                 expected.push_back({first, second});
+        }
+    }
 
-    const auto actual = phys::BroadPhase::findCandidatePairs(bounds);
+    phys::BroadPhaseStats stats{-1.0, -1.0, -1.0, -1.0, 1, 1, 1, 1, 1, -1.0};
+    const auto actual = phys::BroadPhase::findCandidatePairs(bounds, &stats, algorithm);
+    const auto withoutStats = phys::BroadPhase::findCandidatePairs(bounds, nullptr, algorithm);
+    bool grid = algorithm == phys::BroadPhaseAlgorithm::UniformGrid;
+    if (stats.xWindowComparisons != (grid ? 0 : expectedXComparisons)
+        || stats.aabbPairs != expected.size() || withoutStats.size() != actual.size()) {
+        std::cerr << "broadphase work counters or optional stats behavior differ\n";
+        return false;
+    }
+    if (grid ? (stats.gridComparisons < expected.size()
+                || stats.gridEntries > bounds.size() * 64
+                || stats.gridOverflowAabbs > bounds.size()
+                || !(stats.gridCellSize > 0.0 && std::isfinite(stats.gridCellSize)))
+             : (stats.gridComparisons != 0 || stats.gridEntries != 0
+                || stats.gridOverflowAabbs != 0 || stats.gridCellSize != 0.0)) {
+        std::cerr << "invalid grid work counters\n";
+        return false;
+    }
+    for (double time : {stats.recordBuildMs, stats.recordSortMs, stats.sweepMs, stats.pairSortMs}) {
+        if (!std::isfinite(time) || time < 0.0) {
+            std::cerr << "invalid broadphase phase timing\n";
+            return false;
+        }
+    }
     if (actual.size() != expected.size()) {
         std::cerr << "broadphase pair count: expected " << expected.size()
                   << ", got " << actual.size() << '\n';
@@ -25,7 +57,9 @@ bool matchesBruteForce(const std::vector<phys::Aabb>& bounds)
     }
     for (std::size_t index = 0; index < expected.size(); ++index) {
         if (actual[index].first != expected[index].first
-            || actual[index].second != expected[index].second) {
+            || actual[index].second != expected[index].second
+            || actual[index].first != withoutStats[index].first
+            || actual[index].second != withoutStats[index].second) {
             std::cerr << "broadphase pair or ordering differs at " << index << '\n';
             return false;
         }
@@ -33,12 +67,18 @@ bool matchesBruteForce(const std::vector<phys::Aabb>& bounds)
     return true;
 }
 
+bool matchesBoth(const std::vector<phys::Aabb>& bounds)
+{
+    return matchesBruteForce(bounds, phys::BroadPhaseAlgorithm::SweepAndPrune)
+        && matchesBruteForce(bounds, phys::BroadPhaseAlgorithm::UniformGrid);
+}
+
 bool testBoundaryCases()
 {
-    return matchesBruteForce({})
-        && matchesBruteForce({{{0, 0, 0}, {0, 0, 0}}})
-        && matchesBruteForce(std::vector<phys::Aabb>(16, {{-1, -1, -1}, {1, 1, 1}}))
-        && matchesBruteForce({
+    return matchesBoth({})
+        && matchesBoth({{{0, 0, 0}, {0, 0, 0}}})
+        && matchesBoth(std::vector<phys::Aabb>(16, {{-1, -1, -1}, {1, 1, 1}}))
+        && matchesBoth({
             {{4, 0, 0}, {5, 1, 1}},
             {{-2, -2, -2}, {0, 0, 0}},
             {{0, 0, 0}, {1, 1, 1}},
@@ -71,7 +111,7 @@ bool testRandomAndMovingBounds()
             bounds.push_back(box);
         }
         for (int step = 0; step < 4; ++step) {
-            if (!matchesBruteForce(bounds))
+            if (!matchesBoth(bounds))
                 return false;
             for (auto& box : bounds) {
                 phys::Vec3 motion{position(rng) * 0.05f, position(rng) * 0.05f,
@@ -82,6 +122,50 @@ bool testRandomAndMovingBounds()
         }
     }
     return true;
+}
+
+bool testGridBoundariesAndOverflow()
+{
+    std::vector<phys::Aabb> identical(2, {{-0.5f, -0.5f, -0.5f}, {0.5f, 0.5f, 0.5f}});
+    phys::BroadPhaseStats stats;
+    auto pairs = phys::BroadPhase::findCandidatePairs(
+        identical, &stats, phys::BroadPhaseAlgorithm::UniformGrid);
+    if (pairs.size() != 1 || stats.gridEntries != 16 || stats.gridComparisons != 8
+        || stats.gridOverflowAabbs != 0 || stats.gridCellSize != 1.0) {
+        std::cerr << "grid did not deduplicate a pair shared by eight cells\n";
+        return false;
+    }
+
+    std::vector<phys::Aabb> atLimit(3, {{-0.5f, -0.5f, -0.5f}, {0.5f, 0.5f, 0.5f}});
+    atLimit.push_back({{0, 0, 0}, {3, 3, 3}});
+    atLimit.push_back({{0, 0, 0}, {4, 3, 3}});
+    phys::BroadPhase::findCandidatePairs(
+        atLimit, &stats, phys::BroadPhaseAlgorithm::UniformGrid);
+    if (stats.gridOverflowAabbs != 1 || stats.gridEntries != 88 || !matchesBoth(atLimit)) {
+        std::cerr << "grid did not enforce the exact 64-cell membership boundary\n";
+        return false;
+    }
+
+    constexpr float largest = std::numeric_limits<float>::max();
+    std::vector<phys::Aabb> bounds{
+        {{-0.5f, -0.5f, -0.5f}, {0.5f, 0.5f, 0.5f}},
+        {{0.5f, -0.5f, -0.5f}, {1.5f, 0.5f, 0.5f}},
+        {{-1.5f, -0.5f, -0.5f}, {-0.5f, 0.5f, 0.5f}},
+        {{-100000, -0.5f, -100000}, {100000, 0, 100000}},
+        {{largest, 0, 0}, {largest, 0, 0}},
+        {{largest, 0, 0}, {largest, 0, 0}},
+        {{-2147483648.0f, 0, 0}, {-2147483648.0f, 0, 0}},
+        {{-2147483648.0f, 0, 0}, {-2147483648.0f, 0, 0}},
+    };
+    pairs = phys::BroadPhase::findCandidatePairs(
+        bounds, &stats, phys::BroadPhaseAlgorithm::UniformGrid);
+    if (stats.gridOverflowAabbs != 3) {
+        std::cerr << "large floor and extreme coordinates did not use the overflow path\n";
+        return false;
+    }
+    return matchesBoth(bounds)
+        && matchesBoth({{{-1, -1, -1}, {1, 1, 1}},
+                       {{-largest, -largest, -largest}, {largest, largest, largest}}});
 }
 
 bool worldMatchesBruteForce(phys::PhysicsWorld& world,
@@ -109,11 +193,18 @@ bool worldMatchesBruteForce(phys::PhysicsWorld& world,
 
     std::size_t possiblePairs = 0;
     std::size_t candidatePairs = 0;
+    std::size_t xComparisons = 0;
+    std::size_t aabbPairs = 0;
     std::vector<phys::ContactManifold> expectedContacts;
     for (std::size_t first = 0; first < active.size(); ++first) {
         for (std::size_t second = first + 1; second < active.size(); ++second) {
             const auto& a = *world.getCollider(active[first]);
             const auto& b = *world.getCollider(active[second]);
+            if (bounds[first].min.x <= bounds[second].max.x
+                && bounds[first].max.x >= bounds[second].min.x)
+                ++xComparisons;
+            if (bounds[first].overlaps(bounds[second]))
+                ++aabbPairs;
             if (a.body == b.body)
                 continue;
             ++possiblePairs;
@@ -131,9 +222,26 @@ bool worldMatchesBruteForce(phys::PhysicsWorld& world,
     const auto& stats = world.lastStepStats();
     const auto& contacts = world.contacts();
     if (stats.possiblePairs != possiblePairs || stats.candidatePairs != candidatePairs
+        || stats.broadPhaseDetails.xWindowComparisons !=
+            (world.broadPhaseAlgorithm == phys::BroadPhaseAlgorithm::UniformGrid ? 0 : xComparisons)
+        || stats.broadPhaseDetails.aabbPairs != aabbPairs
         || stats.contactCount != expectedContacts.size()
         || contacts.size() != expectedContacts.size()) {
         std::cerr << "world broadphase counts differ from brute force\n";
+        return false;
+    }
+    double measuredPhases = 0.0;
+    for (double time : {stats.broadPhaseCollectMs, stats.broadPhaseFilterMs,
+             stats.broadPhaseDetails.recordBuildMs, stats.broadPhaseDetails.recordSortMs,
+             stats.broadPhaseDetails.sweepMs, stats.broadPhaseDetails.pairSortMs}) {
+        if (!std::isfinite(time) || time < 0.0) {
+            std::cerr << "invalid world broadphase phase timing\n";
+            return false;
+        }
+        measuredPhases += time;
+    }
+    if (!(measuredPhases <= stats.broadPhaseMs + 1e-6)) {
+        std::cerr << "broadphase phase timings exceed total broadphase time\n";
         return false;
     }
     for (std::size_t index = 0; index < contacts.size(); ++index) {
@@ -149,9 +257,14 @@ bool worldMatchesBruteForce(phys::PhysicsWorld& world,
     return true;
 }
 
-bool testWorldFilteringAndSlotReuse()
+bool testWorldFilteringAndSlotReuse(phys::BroadPhaseAlgorithm algorithm)
 {
     phys::PhysicsWorld world;
+    if (world.broadPhaseAlgorithm != phys::BroadPhaseAlgorithm::SweepAndPrune) {
+        std::cerr << "the default broadphase changed\n";
+        return false;
+    }
+    world.broadPhaseAlgorithm = algorithm;
     world.gravity = {};
     std::vector<phys::ColliderHandle> handles;
     std::string error;
@@ -209,10 +322,70 @@ bool testWorldFilteringAndSlotReuse()
     return worldMatchesBruteForce(world, handles);
 }
 
+bool testWorldEvolutionMatches()
+{
+    std::array<phys::PhysicsWorld, 2> worlds;
+    worlds[1].broadPhaseAlgorithm = phys::BroadPhaseAlgorithm::UniformGrid;
+    std::array<std::vector<phys::RigidBodyHandle>, 2> handles;
+    std::string error;
+    for (std::size_t variant = 0; variant < worlds.size(); ++variant) {
+        auto& world = worlds[variant];
+        phys::RigidBodyHandle body;
+        phys::ColliderHandle collider;
+        if (!world.createBox(30, 1, 20, {0, -0.5f, 0}, 1, true, 0, 0.6f,
+                             body, collider, error)) {
+            std::cerr << "evolution floor setup failed: " << error << '\n';
+            return false;
+        }
+        for (int index = 0; index < 12; ++index) {
+            phys::Vec3 position{static_cast<float>(index % 4) * 1.5f - 2.0f,
+                                2.0f + static_cast<float>(index / 4) * 1.5f, 0};
+            bool created = index % 2 == 0
+                ? world.createBox(0.8f, 1.2f, 0.6f, position, 1, false, 0.1f, 0.5f,
+                                   body, collider, error)
+                : world.createSphere(0.5f, position, 1, false, 0.1f, 0.5f,
+                                      body, collider, error);
+            if (!created) {
+                std::cerr << "evolution body setup failed: " << error << '\n';
+                return false;
+            }
+            world.getBody(body)->setAngularVelocity({0.2f, 0.1f, -0.3f});
+            handles[variant].push_back(body);
+        }
+    }
+    for (int step = 0; step < 240; ++step) {
+        for (auto& world : worlds)
+            world.step(1.0f / 60.0f);
+        if (worlds[0].lastStepStats().candidatePairs != worlds[1].lastStepStats().candidatePairs
+            || worlds[0].contacts().size() != worlds[1].contacts().size()) {
+            std::cerr << "grid changed evolving world contact counts\n";
+            return false;
+        }
+        for (std::size_t index = 0; index < handles[0].size(); ++index) {
+            const auto& a = *worlds[0].getBody(handles[0][index]);
+            const auto& b = *worlds[1].getBody(handles[1][index]);
+            auto qa = a.getRotation();
+            auto qb = b.getRotation();
+            if (!(phys::Math3d::length(a.getPosition() - b.getPosition()) <= 1e-5f
+                && phys::Math3d::length(a.getLinearVelocity() - b.getLinearVelocity()) <= 1e-5f
+                && phys::Math3d::length(a.getAngularVelocity() - b.getAngularVelocity()) <= 1e-5f
+                && std::abs(qa.x - qb.x) + std::abs(qa.y - qb.y)
+                    + std::abs(qa.z - qb.z) + std::abs(qa.w - qb.w) <= 1e-5f)) {
+                std::cerr << "grid changed an evolving body's pose or velocity\n";
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 }
 
 int main()
 {
     return testBoundaryCases() && testRandomAndMovingBounds()
-        && testWorldFilteringAndSlotReuse() ? 0 : 1;
+        && testGridBoundariesAndOverflow()
+        && testWorldFilteringAndSlotReuse(phys::BroadPhaseAlgorithm::SweepAndPrune)
+        && testWorldFilteringAndSlotReuse(phys::BroadPhaseAlgorithm::UniformGrid)
+        && testWorldEvolutionMatches() ? 0 : 1;
 }

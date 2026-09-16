@@ -1,5 +1,6 @@
 #pragma once
 #include <cstddef>
+#include "phys/collision/broadphase.hpp"
 
 namespace phys {
 
@@ -12,6 +13,10 @@ struct StepStats
     double narrowPhaseMs = 0.0;
     double solverMs = 0.0;
     double integratePoseMs = 0.0;
+
+    double broadPhaseCollectMs = 0.0;
+    double broadPhaseFilterMs = 0.0;
+    BroadPhaseStats broadPhaseDetails{};
 
     std::size_t possiblePairs = 0; // All live, valid collider pairs on different bodies.
     std::size_t candidatePairs = 0;

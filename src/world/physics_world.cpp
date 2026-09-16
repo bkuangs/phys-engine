@@ -241,7 +241,10 @@ namespace phys
             colliderIndices.push_back(index);
         }
 
-        auto candidatePairs = BroadPhase::findCandidatePairs(bounds);
+        stats.broadPhaseCollectMs = elapsedMs(broadPhaseStart);
+        auto candidatePairs = BroadPhase::findCandidatePairs(
+            bounds, &stats.broadPhaseDetails, broadPhaseAlgorithm);
+        auto filterStart = Clock::now();
         for (BroadPhasePair &pair : candidatePairs)
         {
             pair.first = colliderIndices[pair.first];
@@ -251,6 +254,7 @@ namespace phys
             return colliderSlots[pair.first].collider.body ==
                    colliderSlots[pair.second].collider.body;
         });
+        stats.broadPhaseFilterMs = elapsedMs(filterStart);
         stats.broadPhaseMs = elapsedMs(broadPhaseStart);
         stats.possiblePairs = possiblePairs;
         stats.candidatePairs = candidatePairs.size();

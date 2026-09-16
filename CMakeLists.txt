@@ -72,6 +72,14 @@ if(PHYS_BUILD_BENCHMARKS)
     )
     target_link_libraries(phys_collision_bench PRIVATE phys::phys)
     set_target_properties(phys_collision_bench PROPERTIES CXX_EXTENSIONS OFF)
+
+    add_executable(phys_broadphase_compare
+        benchmarks/broadphase_compare.cpp
+        benchmarks/bench_common.cpp
+        benchmarks/alloc_counter.cpp
+    )
+    target_link_libraries(phys_broadphase_compare PRIVATE phys::phys)
+    set_target_properties(phys_broadphase_compare PROPERTIES CXX_EXTENSIONS OFF)
 endif()
 
 include(CTest)

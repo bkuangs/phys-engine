@@ -7,6 +7,8 @@ step time fell from **197.83 ms to 13.40 ms**, approximately **14.76x faster**.
 That is a substantial improvement, but still above the 8.33 ms budget for 120 Hz.
 The subsequent [contiguous-record experiment](#contiguous-record-experiment)
 improved SAP further using a fresh, repeated comparison.
+An opt-in [uniform-grid prototype](#uniform-grid-prototype) is evaluated below;
+SAP remains the engine default.
 
 ## Comparable checkpoints
 
@@ -151,8 +153,8 @@ Threading narrowphase is therefore not the first priority for this workload.
 The simple SAP integration also adds four temporary allocations per step.
 At 10,000 bodies, the reported average rose from 16 to 20. The layout experiment
 below leaves allocation policy unchanged; buffer reuse remains a potential
-follow-up. Separating sorting, scanning, and filtering timings would help
-identify the remaining cost.
+follow-up. The later phase profile separates sorting, scanning, and filtering
+to identify the remaining cost.
 
 These measurements do not cover box-box contact costs, stacking, or renderer
 performance. The earlier box-contact correctness fix should not be credited
@@ -205,6 +207,120 @@ rather than treating the earlier single-run 13.40 ms result as a controlled
 before measurement. These are still short runs on a shared machine, so the
 observed ratios should not be treated as universal speedups.
 
+## Broadphase phase profile
+
+The next measurement adds phase-boundary timers and work counters without
+changing the collision algorithm. A control executable from `a6b5dd6` was
+preserved, then three control runs and three instrumented runs were interleaved
+using the same Release configuration, seed, and sample argument `10`.
+The [profile report](../benchmark-results-broadphase-profile-release.txt)
+contains all per-run timings and counts.
+
+At 10,000 bodies, the instrumented full-step median run mean was 9.04 ms and
+the broadphase median run mean was 7.97 ms. The detailed timings were:
+
+| Broadphase component | Median of three per-run means |
+| --- | ---: |
+| Collect active bounds/indices and count eligible pairs | 0.0300 ms |
+| Build contiguous sweep records | 0.0228 ms |
+| Sort records by X | 0.5038 ms |
+| Sweep, check overlaps, and emit pairs | 7.2686 ms |
+| Sort output pairs into deterministic order | 0.1375 ms |
+| Map slots and filter same-body pairs | 0.0124 ms |
+
+These independently computed medians and rounded totals need not sum exactly.
+The sweep accounts for approximately **91% of broadphase time** and **80% of
+the whole step**. Record sorting is about 6% of broadphase time; setup and
+filtering are much smaller.
+
+The final step examined **2,284,736 X-overlapping pairs**, of which only
+**2,969** passed the full AABB test. Since this benchmark gives each sphere its
+own body, all 2,969 also survived body filtering. That is about **770 X-window
+comparisons per emitted pair**: **99.87%** of those pairs were rejected on the
+remaining axes. These are last-step counts, whereas the durations above
+summarize all measured steps.
+
+This identifies the sweep's candidate volume as the primary target, rather
+than scratch-buffer setup or sorting alone. Persistent sorting cannot remove
+the millions of remaining overlap checks. The sweep timing also includes
+output-vector growth, so it should not be interpreted as a hardware-level
+breakdown of comparisons versus allocation.
+
+The control's median run mean was 9.23 ms, versus 9.04 ms with instrumentation.
+Individual control means ranged from 8.91 to 9.62 ms; instrumented means ranged
+from 8.98 to 9.33 ms. Their overlap does not establish a speedup or precisely
+measure instrumentation overhead, but the repeated phase results consistently
+identify the sweep as dominant.
+
+Phase counters are checked against brute force, including touching intervals,
+empty/reset cases, and same-body filtering. Existing pair, contact, and
+allocation counts matched the control throughout the benchmark. No per-pair
+clock calls or additional allocation-tracking buffers were introduced.
+
+## Uniform-grid prototype
+
+The grid is an explicit alternative to SAP, not a replacement default.
+It chooses its cell width from typical AABB size, inserts each AABB into all
+overlapped cells, sorts contiguous cell/index records, and deduplicates the
+resulting pairs. A 64-cell-per-AABB limit and an overflow comparison path keep
+large floors or extreme coordinates from causing unbounded cell expansion.
+See the [collision pipeline](collision_pipeline.md#experimental-uniform-grid)
+for the precise policy.
+
+The [full-world comparison](../benchmark-results-grid-release.txt) uses three
+interleaved runs per backend with the same seed, Release build, and argument
+`10`. These are medians of per-run mean step times:
+
+| Bodies | Fresh SAP | Uniform grid | SAP time / grid time |
+| ---: | ---: | ---: | ---: |
+| 100 | 0.03 ms | 0.06 ms | 0.50x |
+| 500 | 0.16 ms | 0.29 ms | 0.55x |
+| 1,000 | 0.43 ms | 0.63 ms | 0.68x |
+| 2,500 | 1.65 ms | 1.73 ms | 0.95x |
+| 5,000 | 3.11 ms | 3.00 ms | 1.04x |
+| 10,000 | 9.44 ms | 7.10 ms | 1.33x |
+
+At 10,000 bodies, last-step AABB tests fell from 2,284,736 to 30,485, roughly
+a 75-fold reduction, with the same 2,969 unique candidate pairs. However, the
+grid creates 80,000 cell records, and sorting them took a median run mean of
+4.7663 ms out of 6.04 ms of broadphase time. The bottleneck shifted toward
+building/sorting the spatial index, rather than disappearing.
+
+The grid missed 20/75 deadlines versus SAP's 72/75 in this fresh comparison.
+Its per-run p95 step times were 9.96-10.08 ms: an average below 8.33 ms does not
+establish consistent 120 Hz performance. At 10,000 bodies, reported allocations
+also increased from 20 to 24 per step. Small scenes were slower with the grid.
+
+### Other layouts
+
+The separate [layout comparison](../benchmark-results-grid-layouts-release.txt)
+times standalone broadphase queries on static AABBs, not full simulation steps.
+Ten queries per backend are interleaved for each layout, with exact ordered
+pair equality checked outside the timed region. At 10,000 AABBs:
+
+| Layout | SAP query mean | Grid query mean |
+| --- | ---: | ---: |
+| Uniform, unit-sized AABBs | 7.99 ms | 6.31 ms |
+| Eight clusters | 27.79 ms | 18.94 ms |
+| Rotated mixed-size boxes plus a large floor | 12.42 ms | 6.85 ms |
+| Rotated cubes with a wide size distribution | 21.51 ms | 115.67 ms |
+
+The mixed-floor layout had only one overflow object. The wide-size layout
+had 1,990 overflow AABBs, causing 17,967,931 grid-path checks versus SAP's
+4,159,465. The overflow path preserves correctness and bounded cell storage,
+but costs roughly the number of overflow objects times the total object count.
+
+These results support keeping the grid available for experiments while
+retaining SAP as the default. It helps large, similarly sized populations and
+some clustered/mixed layouts, but is not an engine-wide win. Cheaper grid
+indexing and better handling of heterogeneous sizes are possible future work;
+neither is claimed as an improvement already achieved.
+
+Both backends match brute force for boundary, random, degenerate, oversized,
+and extreme-coordinate inputs. A mixed sphere/rotating-box world on a large
+floor also evolves with matching poses and velocities under both backends.
+Default SAP behavior, pair ordering, and same-body filtering are retained.
+
 ## Reproducing the Release workload
 
 Build the selected source revision in a separate directory to leave the
@@ -219,6 +335,19 @@ cmake -S . -B build/release-bench \
 cmake --build build/release-bench --target phys_collision_bench -j 4
 ./build/release-bench/phys_collision_bench 10
 ```
+
+The algorithm argument is optional and defaults to `sap`. To compare the
+experimental backend, use the same sample argument:
+
+```sh
+./build/release-bench/phys_collision_bench 10 sap
+./build/release-bench/phys_collision_bench 10 grid
+cmake --build build/release-bench --target phys_broadphase_compare -j 4
+./build/release-bench/phys_broadphase_compare 10
+```
+
+`phys_broadphase_bench` accepts the same optional `sap`/`grid` argument as
+`phys_collision_bench`; both run the full-world sphere workload.
 
 These commands benchmark the currently checked-out code. Use `fd8f5a1` for the
 recorded all-pairs implementation and `9b9bc30` for the original indexed SAP,
