@@ -13,24 +13,18 @@ class RigidBody
 public:
     RigidBody() = default;
 
-    float mass;
-    float density;
-    float restitution;
-    float area;
+    float mass{};
+    float restitution{};
 
-    bool isStatic;
+    bool isStatic{};
 
     RigidBody(
         Vec3 position,
-        float density,
         float mass,
         float restitution,
-        float area,
         bool isStatic)
         : mass(mass),
-        density(density),
         restitution(restitution),
-        area(area),
         isStatic(isStatic),
         position(position),
         linVelo{},
@@ -41,6 +35,9 @@ public:
 
     // Pose-integration stage: advances position by the current linear velocity.
     void integratePosition(float dt);
+
+    // Velocity-integration stage: applies gravity and accumulated force.
+    void integrateVelocity(const Vec3& gravity, float dt);
 
     // Pose-integration stage: advances orientation by the current angular velocity.
     void integrateRotation(float dt);
@@ -90,7 +87,7 @@ public:
         const float mass = area * density;
 
         body = RigidBody(
-            position, density, mass, restitution, area, isStatic
+            position, mass, restitution, isStatic
         );
 
         return true;
@@ -124,7 +121,7 @@ public:
         const float mass = volume * density;
 
         body = RigidBody(
-            position, density, mass, restitution, volume, isStatic
+            position, mass, restitution, isStatic
         );
 
         return true;
@@ -136,8 +133,6 @@ private:
     Quaternion rotation = Quaternion::identity();
     Vec3 angularVelo;
     Vec3 force;
-    Vec3 angularVelocity;
-    Mat3 inverseInertiaWorld;
 };
 
 }

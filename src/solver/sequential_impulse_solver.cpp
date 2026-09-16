@@ -92,6 +92,7 @@ void SequentialImpulseSolver::solve(std::vector<ContactManifold>& contacts,
 			float inverseMassSum = bodyA->getInverseMass() + bodyB->getInverseMass();
 			if (inverseMassSum <= 0.0f) continue;
 
+			// Loop through each contact point
 			for (uint32_t index = 0; index < manifold.pointCount; ++index) {
 
 				ContactPoint& point = manifold.points[index];

@@ -1,6 +1,5 @@
 #include <phys/world/physics_world.hpp>
 #include <phys/collision/narrowphase.hpp>
-#include <phys/dynamics/integrator.hpp>
 #include <phys/solver/sequential_impulse_solver.hpp>
 #include <chrono>
 #include <algorithm>
@@ -177,7 +176,7 @@ void PhysicsWorld::step(float dt)
     // Apply gravity to active bodies
     for (Slot& slot : slots) {
         if (!slot.alive) continue;
-        integrateVelocity(slot.body, gravity, dt);
+        slot.body.integrateVelocity(gravity, dt);
     }
     stats.integrateVelocityMs = elapsedMs(velocityStart);
 

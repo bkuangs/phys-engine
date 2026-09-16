@@ -1,10 +1,22 @@
 #pragma once
 #include <array>
 #include <cstdint>
-#include "phys/collision/contact.hpp"
+#include "phys/math/vec3.hpp"
 #include "phys/world/body_handle.hpp"
 
 namespace phys {
+
+struct ContactPoint
+{
+	Vec3 localAnchorA{};
+	Vec3 localAnchorB{};
+
+	float penetration = 0.0f;
+
+	float normalImpulse = 0.0f;
+	float tangentImpulse1 = 0.0f;
+	float tangentImpulse2 = 0.0f;
+};
 
 struct ContactManifold
 {

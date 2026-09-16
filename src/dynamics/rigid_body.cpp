@@ -2,6 +2,14 @@
 
 namespace phys {
 
+void RigidBody::integrateVelocity(const Vec3& gravity, float dt)
+{
+    if (isStatic) return;
+
+    Vec3 acceleration = gravity + force * getInverseMass();
+    linVelo += acceleration * dt;
+}
+
 void RigidBody::integratePosition(float dt)
 {
     if (isStatic) return;

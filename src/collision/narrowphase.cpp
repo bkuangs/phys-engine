@@ -2,6 +2,7 @@
 #include <phys/collision/sat.hpp>
 #include <phys/math/math_utils.hpp>
 #include <type_traits>
+#include <utility>
 
 namespace phys {
 
@@ -211,8 +212,12 @@ bool NarrowPhase::generateContact(
                 && std::is_same_v<ShapeB, Sphere>) {
                 bool intersects = intersectSphereBox(
                     shapeB, transformB, shapeA, transformA, manifold);
-                if (intersects)
+                if (intersects) {
                     manifold.normal = -manifold.normal;
+                    for (uint32_t index = 0; index < manifold.pointCount; ++index)
+                        std::swap(manifold.points[index].localAnchorA,
+                            manifold.points[index].localAnchorB);
+                }
                 return intersects;
             } else if constexpr (std::is_same_v<ShapeA, Box>
                 && std::is_same_v<ShapeB, Box>) {

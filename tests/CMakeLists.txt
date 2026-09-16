@@ -1,3 +1,7 @@
-# Add dependency-free test executables here as behavior is implemented.
-# Link each executable to phys::phys and register it with add_test().
-# No placeholder tests are registered.
+add_executable(phys_narrowphase_tests
+	collision/narrowphase_tests.cpp
+)
+target_link_libraries(phys_narrowphase_tests PRIVATE phys::phys)
+set_target_properties(phys_narrowphase_tests PROPERTIES CXX_EXTENSIONS OFF)
+
+add_test(NAME phys_narrowphase_tests COMMAND phys_narrowphase_tests)
