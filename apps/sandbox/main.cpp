@@ -17,8 +17,8 @@ namespace
     Color colorForShape(const phys::Collider &collider)
     {
         return std::holds_alternative<phys::Sphere>(collider.shape)
-                   ? Color{80, 160, 255, 255}
-                   : Color{255, 150, 70, 255};
+                   ? Color{185, 185, 185, 255}
+                   : Color{125, 125, 125, 255};
     }
 
     void drawObject(const phys::PhysicsWorld &world,
@@ -38,12 +38,12 @@ namespace
                 {position.x, position.y, position.z},
                 sphere->radius,
                 color);
-            DrawSphereWires(
+                DrawSphereWires(
                 {position.x, position.y, position.z},
                 sphere->radius,
                 12,
                 8,
-                DARKBLUE);
+                DARKGRAY);
             return;
         }
 
@@ -54,7 +54,7 @@ namespace
             box.halfExtents.z * 2.0f};
         Vector3 center{position.x, position.y, position.z};
         DrawCubeV(center, size, color);
-        DrawCubeWiresV(center, size, DARKBROWN);
+        DrawCubeWiresV(center, size, BLACK);
     }
 
 } // namespace
@@ -88,6 +88,27 @@ int main()
                        1.0f, false, 0.35f, 0.4f, body, collider, error);
     objects.push_back({body, collider});
 
+    // A larger deterministic pile makes stacking and resting contacts easier
+    // to observe without introducing scene-generation dependencies.
+    for (int row = 0; row < 4; ++row) {
+        for (int column = 0; column < 5; ++column) {
+            float x = -4.0f + static_cast<float>(column) * 2.0f;
+            float y = 2.0f + static_cast<float>(row) * 1.8f;
+            float size = 0.9f + 0.1f * static_cast<float>((row + column) % 3);
+            world.createBox(size, size, size, {x, y, 0.0f},
+                1.0f, false, 0.05f, 0.55f, body, collider, error);
+            objects.push_back({body, collider});
+        }
+    }
+
+    for (int index = 0; index < 8; ++index) {
+        float x = -3.5f + static_cast<float>(index % 4) * 2.3f;
+        float y = 10.0f + static_cast<float>(index / 4) * 1.8f;
+        world.createSphere(0.55f, {x, y, 0.0f},
+            1.0f, false, 0.1f, 0.45f, body, collider, error);
+        objects.push_back({body, collider});
+    }
+
     Camera3D camera{
         {10.0f, 8.0f, 14.0f},
         {0.0f, 1.5f, 0.0f},
@@ -101,7 +122,7 @@ int main()
         world.step(dt);
 
         BeginDrawing();
-        ClearBackground({235, 239, 244, 255});
+        ClearBackground({220, 220, 220, 255});
         BeginMode3D(camera);
 
         DrawGrid(24, 1.0f);
@@ -120,15 +141,16 @@ int main()
             DrawLine3D(
                 {midpoint.x, midpoint.y, midpoint.z},
                 {end.x, end.y, end.z},
-                RED);
+                BLACK);
         }
 
         EndMode3D();
-        DrawText("ESC to quit | blue spheres, orange boxes, red contacts",
-                 20, 20, 20, DARKGRAY);
-        DrawText(TextFormat("contacts: %u",
-                            static_cast<unsigned>(world.contacts().size())),
-                 20, 48, 20, DARKGRAY);
+        DrawText("ESC to quit | grayscale spheres, boxes, and contacts",
+             20, 20, 20, BLACK);
+        DrawText(TextFormat("objects: %u  contacts: %u",
+                    static_cast<unsigned>(objects.size()),
+                    static_cast<unsigned>(world.contacts().size())),
+             20, 48, 20, BLACK);
         EndDrawing();
     }
 
