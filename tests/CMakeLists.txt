@@ -1,3 +1,11 @@
+add_executable(phys_broadphase_tests
+	collision/broadphase_tests.cpp
+)
+target_link_libraries(phys_broadphase_tests PRIVATE phys::phys)
+set_target_properties(phys_broadphase_tests PROPERTIES CXX_EXTENSIONS OFF)
+
+add_test(NAME phys_broadphase_tests COMMAND phys_broadphase_tests)
+
 add_executable(phys_narrowphase_tests
 	collision/narrowphase_tests.cpp
 )

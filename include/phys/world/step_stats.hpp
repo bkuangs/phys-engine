@@ -13,7 +13,7 @@ struct StepStats
     double solverMs = 0.0;
     double integratePoseMs = 0.0;
 
-    std::size_t possiblePairs = 0;
+    std::size_t possiblePairs = 0; // All live, valid collider pairs on different bodies.
     std::size_t candidatePairs = 0;
     std::size_t contactCount = 0;
 };

@@ -14,9 +14,8 @@ struct BroadPhasePair
 class BroadPhase
 {
 public:
-    // Naive O(n^2) all-pairs AABB overlap; kept as the benchmark baseline.
-    // TODO: replace/augment with a BVH (or grid / sweep-and-prune) once
-    // profiling shows all-pairs no longer scales for the target body counts.
+    // Single-threaded X-axis sweep-and-prune, including touching AABBs.
+    // Returns lexicographically ordered input-index pairs with first < second.
     static std::vector<BroadPhasePair> findCandidatePairs(const std::vector<Aabb>& bounds);
 };
 

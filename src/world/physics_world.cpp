@@ -1,10 +1,10 @@
 #include <phys/world/physics_world.hpp>
+#include <phys/collision/broadphase.hpp>
 #include <phys/collision/narrowphase.hpp>
 #include <phys/solver/sequential_impulse_solver.hpp>
 #include <chrono>
 #include <algorithm>
 #include <cmath>
-#include <utility>
 
 namespace phys
 {
@@ -221,30 +221,36 @@ namespace phys
 
         // BROAD-PHASE: Collect AABB-overlapping collider pairs as candidates.
         auto broadPhaseStart = Clock::now();
-        std::vector<std::pair<uint32_t, uint32_t>> candidatePairs;
+        std::vector<Aabb> bounds;
+        std::vector<uint32_t> colliderIndices;
+        std::vector<std::size_t> collidersPerBody(slots.size(), 0);
+        bounds.reserve(colliderSlots.size());
+        colliderIndices.reserve(colliderSlots.size());
         std::size_t possiblePairs = 0;
 
-        for (uint32_t first = 0; first < colliderSlots.size(); ++first)
+        for (uint32_t index = 0; index < colliderSlots.size(); ++index)
         {
-            ColliderSlot &firstSlot = colliderSlots[first];
-            if (!firstSlot.alive)
+            const ColliderSlot &slot = colliderSlots[index];
+            if (!slot.alive || !getBody(slot.collider.body))
                 continue;
 
-            for (uint32_t second = first + 1; second < colliderSlots.size(); ++second)
-            {
-                ColliderSlot &secondSlot = colliderSlots[second];
-                if (!secondSlot.alive)
-                    continue;
-                if (firstSlot.collider.body == secondSlot.collider.body)
-                    continue;
-
-                ++possiblePairs;
-                if (firstSlot.collider.bounds.overlaps(secondSlot.collider.bounds))
-                {
-                    candidatePairs.emplace_back(first, second);
-                }
-            }
+            // Count eligible all-pairs without retaining a quadratic statistics loop.
+            possiblePairs += bounds.size() - collidersPerBody[slot.collider.body.index];
+            ++collidersPerBody[slot.collider.body.index];
+            bounds.push_back(slot.collider.bounds);
+            colliderIndices.push_back(index);
         }
+
+        auto candidatePairs = BroadPhase::findCandidatePairs(bounds);
+        for (BroadPhasePair &pair : candidatePairs)
+        {
+            pair.first = colliderIndices[pair.first];
+            pair.second = colliderIndices[pair.second];
+        }
+        std::erase_if(candidatePairs, [&](const BroadPhasePair &pair) {
+            return colliderSlots[pair.first].collider.body ==
+                   colliderSlots[pair.second].collider.body;
+        });
         stats.broadPhaseMs = elapsedMs(broadPhaseStart);
         stats.possiblePairs = possiblePairs;
         stats.candidatePairs = candidatePairs.size();

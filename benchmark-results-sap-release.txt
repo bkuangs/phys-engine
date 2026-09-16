@@ -1,0 +1,148 @@
+Headless physics benchmark
+Date:                       2026-09-16
+Source revision:            0455cd0 + uncommitted single-axis SAP changes
+Build:                      Release, Apple Clang 17.0.0.17000604, arm64
+Compiler flags:             -O3 -DNDEBUG -std=c++20 -arch arm64
+Hardware:                   Apple M2, macOS
+Configure:                  cmake -S . -B build/release-bench -DCMAKE_BUILD_TYPE=Release -DPHYS_BUILD_SANDBOX=OFF -DPHYS_BUILD_BENCHMARKS=ON -DBUILD_TESTING=ON
+Build command:              cmake --build build/release-bench --target phys_collision_bench -j 4
+Command:                    ./build/release-bench/phys_collision_bench 10
+Workload:                   Seeded sphere field (seed 42), no warmup
+Samples:                    10 through 2500 bodies; 100 at 5000; 25 at 10000
+Broadphase:                 Single-threaded X-axis sweep-and-prune
+Comparison:                 benchmark-results-release.txt (Release, all-pairs broadphase)
+Notes:                      Sphere-only workload; does not exercise box contacts.
+                            Single short run; timings depend on system load.
+
+Bodies:                     100
+Simulation frequency:       120.00 Hz
+
+Step time:
+    mean:                    0.06 ms
+    p50:                     0.06 ms
+    p95:                     0.08 ms
+    p99:                     0.08 ms
+    max:                     0.11 ms
+
+Deadline misses (>8.33ms):   0 / 10
+
+Broadphase:
+    possible pairs:          4950
+    candidate pairs:         33
+    broadphase time:         0.02 ms
+
+Narrowphase time:            0.00 ms
+Solver time:                 0.02 ms
+
+Heap allocations / step:     15
+
+Bodies:                     500
+Simulation frequency:       120.00 Hz
+
+Step time:
+    mean:                    0.34 ms
+    p50:                     0.38 ms
+    p95:                     0.42 ms
+    p99:                     0.42 ms
+    max:                     0.47 ms
+
+Deadline misses (>8.33ms):   0 / 10
+
+Broadphase:
+    possible pairs:          124750
+    candidate pairs:         179
+    broadphase time:         0.23 ms
+
+Narrowphase time:            0.01 ms
+Solver time:                 0.09 ms
+
+Heap allocations / step:     17
+
+Bodies:                     1000
+Simulation frequency:       120.00 Hz
+
+Step time:
+    mean:                    0.83 ms
+    p50:                     0.87 ms
+    p95:                     1.04 ms
+    p99:                     1.04 ms
+    max:                     1.08 ms
+
+Deadline misses (>8.33ms):   0 / 10
+
+Broadphase:
+    possible pairs:          499500
+    candidate pairs:         347
+    broadphase time:         0.59 ms
+
+Narrowphase time:            0.03 ms
+Solver time:                 0.19 ms
+
+Heap allocations / step:     18
+
+Bodies:                     2500
+Simulation frequency:       120.00 Hz
+
+Step time:
+    mean:                    2.37 ms
+    p50:                     2.46 ms
+    p95:                     3.09 ms
+    p99:                     3.09 ms
+    max:                     3.34 ms
+
+Deadline misses (>8.33ms):   0 / 10
+
+Broadphase:
+    possible pairs:          3123750
+    candidate pairs:         923
+    broadphase time:         1.81 ms
+
+Narrowphase time:            0.08 ms
+Solver time:                 0.45 ms
+
+Heap allocations / step:     20
+
+Bodies:                     5000
+Simulation frequency:       120.00 Hz
+
+Step time:
+    mean:                    3.42 ms
+    p50:                     3.29 ms
+    p95:                     4.71 ms
+    p99:                     5.53 ms
+    max:                     5.65 ms
+
+Deadline misses (>8.33ms):   0 / 100
+
+Broadphase:
+    possible pairs:          12497500
+    candidate pairs:         1435
+    broadphase time:         3.21 ms
+
+Narrowphase time:            0.04 ms
+Solver time:                 0.11 ms
+
+Heap allocations / step:     18
+
+Bodies:                     10000
+Simulation frequency:       120.00 Hz
+
+Step time:
+    mean:                    13.40 ms
+    p50:                     11.58 ms
+    p95:                     21.48 ms
+    p99:                     23.71 ms
+    max:                     39.83 ms
+
+Deadline misses (>8.33ms):   25 / 25
+
+Broadphase:
+    possible pairs:          49995000
+    candidate pairs:         2969
+    broadphase time:         11.84 ms
+
+Narrowphase time:            0.44 ms
+Solver time:                 0.89 ms
+
+Heap allocations / step:     20
+

@@ -12,17 +12,27 @@ Body poses + collider local transforms
 
 ## Broad phase
 
-The current broad phase uses all-pairs AABB overlap. It is an intentionally
-simple O(n^2) baseline, not the final scalability story. A candidate means
-only that a narrow-phase query may be necessary.
+The current broad phase uses single-threaded, single-axis sweep-and-prune
+(SAP). Active collider AABBs are sorted by minimum X each step. The sweep
+checks later entries until their minimum X exceeds the current maximum X,
+then stops; the remaining AABB axes reject false candidates. Touching bounds
+are included. Dense overlap along X can still require quadratic scanning.
+A candidate means only that a narrow-phase query may be necessary.
 
-Pairs are generated once using stable collider-slot ordering, and colliders
-belonging to the same body are excluded. Bounds are refreshed from the
+`PhysicsWorld::step()` calls `BroadPhase::findCandidatePairs()` and maps its
+input indices back to live collider slots. Pairs are generated once and sorted
+into the original collider-slot order to keep solver ordering deterministic;
+colliders belonging to the same body are excluded. Bounds are refreshed from the
 current body poses before pair generation and conservatively contain the
 transformed shapes. Collision filtering and explicit static-static rejection
 remain future policy work.
 
-Later compare sweep and prune, a dynamic AABB tree, or another justified
+The `possiblePairs` statistic still counts all eligible collider pairs before
+spatial rejection, using per-body counts rather than an all-pairs loop.
+The brute-force implementation is retained as a test oracle, and the recorded
+naive/Release reports remain performance baselines.
+
+Later compare persistent SAP endpoints, a dynamic AABB tree, or another justified
 spatial structure against the same workloads and baseline pair results.
 Report false-positive counts alongside timings; faster execution is not useful
 if valid pairs are lost.
@@ -78,9 +88,12 @@ perform ad hoc reflection.
 
 Tests cover separation, penetration depth, coincident centers, sphere and box
 contact conventions, rotated shapes, friction response, and static-floor
-stability. Additional coverage should include touching semantics, degenerate
-inputs, pair symmetry, multi-point box manifolds, and explicit broad-phase
-comparison against an all-pairs reference.
+stability. Broad-phase coverage compares exact ordered pairs with an all-pairs
+reference for empty, touching, degenerate, dense, random, and moving bounds.
+World-level checks cover same-body filtering, collider-local transforms,
+inactive slots, and body/collider slot reuse.
+Additional coverage should include narrow-phase touching semantics, degenerate
+inputs, pair symmetry, and multi-point box manifolds.
 
 Broad-phase and collision benchmarks now exist, but their workload coverage
 should be expanded. Broad-phase workloads should distinguish sparse, clustered,
