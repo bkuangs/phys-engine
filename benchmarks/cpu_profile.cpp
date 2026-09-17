@@ -65,6 +65,10 @@ struct Totals
     std::size_t minContacts = std::numeric_limits<std::size_t>::max();
     std::size_t maxContacts = 0;
     std::size_t reinsertions = 0;
+    std::size_t solvedContacts = 0;
+    std::size_t awakeBodies = 0;
+    std::size_t sleepingBodies = 0;
+    std::size_t minSleepingBodies = std::numeric_limits<std::size_t>::max();
     double step = 0;
     double broadphase = 0;
     double maintenance = 0;
@@ -83,6 +87,10 @@ struct Totals
         minContacts = std::min(minContacts, stats.contactCount);
         maxContacts = std::max(maxContacts, stats.contactCount);
         reinsertions += stats.broadPhaseDetails.treeReinsertions;
+        solvedContacts += stats.solvedContactCount;
+        awakeBodies += stats.awakeBodyCount;
+        sleepingBodies += stats.sleepingBodyCount;
+        minSleepingBodies = std::min(minSleepingBodies, stats.sleepingBodyCount);
         step += stats.totalMs;
         broadphase += stats.broadPhaseMs;
         maintenance += stats.broadPhaseDetails.recordBuildMs;
@@ -98,8 +106,8 @@ struct Totals
 
 int main(int argc, char** argv)
 {
-    if (argc < 2 || argc > 4) {
-        std::cerr << "Usage: phys_cpu_profile <spheres|boxes> [seconds=20] [--wait]\n";
+    if (argc < 2 || argc > 5) {
+        std::cerr << "Usage: phys_cpu_profile <spheres|boxes> [seconds=20] [--wait] [--sleep]\n";
         return 1;
     }
     std::string_view scene = argv[1];
@@ -112,14 +120,28 @@ int main(int argc, char** argv)
             return 1;
         }
     }
-    if ((scene != "spheres" && scene != "boxes") || (argc == 4 && std::string_view(argv[3]) != "--wait")) {
-        std::cerr << "Expected scene spheres/boxes and optional --wait\n";
+    if (scene != "spheres" && scene != "boxes") {
+        std::cerr << "Expected scene spheres/boxes\n";
         return 1;
+    }
+    bool wait = false;
+    bool sleeping = false;
+    for (int index = 3; index < argc; ++index) {
+        std::string_view option = argv[index];
+        if (option == "--wait" && !wait)
+            wait = true;
+        else if (option == "--sleep" && !sleeping)
+            sleeping = true;
+        else {
+            std::cerr << "Unknown or duplicate profile option: " << option << '\n';
+            return 1;
+        }
     }
 
     std::vector<phys::RigidBodyHandle> handles;
     auto world = scene == "spheres" ? phys::bench::makeSphereField(10000, 42) : makeBoxStacks(handles);
     world.broadPhaseAlgorithm = phys::BroadPhaseAlgorithm::DynamicTree;
+    world.setSleepingEnabled(sleeping);
     int warmup = 0;
     float warmLinear = 0;
     float warmAngular = 0;
@@ -131,8 +153,10 @@ int main(int argc, char** argv)
             auto speeds = maxSpeeds(world, handles);
             warmLinear = speeds.first;
             warmAngular = speeds.second;
-        } while (warmup < 1200 && (warmup < 240 || warmLinear > 0.05f || warmAngular > 0.05f));
-        if (warmLinear > 0.05f || warmAngular > 0.05f) {
+        } while (warmup < 1200 && (warmup < 240 || warmLinear > 0.05f || warmAngular > 0.05f
+                                 || (sleeping && world.lastStepStats().sleepingBodyCount != handles.size())));
+        if (warmLinear > 0.05f || warmAngular > 0.05f
+            || (sleeping && world.lastStepStats().sleepingBodyCount != handles.size())) {
             std::cerr << "Box profiling scene did not settle within the warmup budget\n";
             return 1;
         }
@@ -145,8 +169,10 @@ int main(int argc, char** argv)
               << " static_bodies=" << (scene == "spheres" ? 0 : 1)
               << " warmup_steps=" << warmup
               << " max_linear_speed=" << warmLinear << " max_angular_speed=" << warmAngular
-              << " contacts=" << world.contacts().size() << " contact_points=" << warmPoints << std::endl;
-    if (argc == 4) {
+              << " contacts=" << world.contacts().size() << " contact_points=" << warmPoints
+              << " sleeping_enabled=" << sleeping
+              << " sleeping_bodies=" << world.lastStepStats().sleepingBodyCount << std::endl;
+    if (wait) {
         std::string line;
         if (!std::getline(std::cin, line)) {
             std::cerr << "Profile start signal was not received\n";
@@ -168,6 +194,7 @@ int main(int argc, char** argv)
         if (scene == "spheres" && batchSteps == 25) {
             world = phys::bench::makeSphereField(10000, 42);
             world.broadPhaseAlgorithm = phys::BroadPhaseAlgorithm::DynamicTree;
+            world.setSleepingEnabled(sleeping);
             batchSteps = 0;
             ++batches;
         }
@@ -187,12 +214,17 @@ int main(int argc, char** argv)
               << "\nmean_integrate_pose_ms: " << totals.integratePose / count
               << "\nmean_contacts: " << totals.contacts / count
               << "\nmin_contacts: " << totals.minContacts << "\nmax_contacts: " << totals.maxContacts
+              << "\nmean_solved_contacts: " << totals.solvedContacts / count
+              << "\nmean_awake_bodies: " << totals.awakeBodies / count
+              << "\nmean_sleeping_bodies: " << totals.sleepingBodies / count
+              << "\nmin_sleeping_bodies: " << totals.minSleepingBodies
               << "\nreinsertions: " << totals.reinsertions << '\n';
     if (scene == "boxes") {
         auto speeds = maxSpeeds(world, handles);
         std::cout << "final_max_linear_speed: " << speeds.first
                   << "\nfinal_max_angular_speed: " << speeds.second << '\n';
-        if (totals.contacts / count < 256.0 || speeds.first > 0.05f || speeds.second > 0.05f) {
+        if (totals.contacts / count < 256.0 || speeds.first > 0.05f || speeds.second > 0.05f
+            || (sleeping && totals.minSleepingBodies != handles.size())) {
             std::cerr << "Box profiling scene did not remain settled and contact-heavy\n";
             return 1;
         }

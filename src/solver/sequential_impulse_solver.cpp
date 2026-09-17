@@ -147,6 +147,10 @@ namespace phys
 			RigidBody *bodyB = world.getBody(manifold.bodyB);
 			if (!bodyA || !bodyB)
 				continue;
+			if (world.sleepingEnabled
+				&& (bodyA->isStatic || bodyA->isSleeping())
+				&& (bodyB->isStatic || bodyB->isSleeping()))
+				continue;
 
 			PreparedManifold prepared;
 			prepared.manifold = &manifold;
@@ -211,6 +215,7 @@ namespace phys
 
 			preparedContacts.push_back(prepared);
 		}
+		world.stats.solvedContactCount = preparedContacts.size();
 
 		// Restore impulses from the previous step before the iterative solve.
 		// Local anchors provide a stable contact identity while body handles
@@ -247,8 +252,8 @@ namespace phys
 					point.tangentImpulse2 = Math3d::clamp(
 						cached.tangentImpulse2, -tangentLimit, tangentLimit);
 					Vec3 warmImpulse = manifold.normal * point.normalImpulse + preparedPoint.tangent1 * point.tangentImpulse1 + preparedPoint.tangent2 * point.tangentImpulse2;
-					bodyA->applyImpulse(-warmImpulse, preparedPoint.offsetA);
-					bodyB->applyImpulse(warmImpulse, preparedPoint.offsetB);
+					bodyA->applyImpulseWithoutWaking(-warmImpulse, preparedPoint.offsetA);
+					bodyB->applyImpulseWithoutWaking(warmImpulse, preparedPoint.offsetB);
 					break;
 				}
 			}
@@ -290,8 +295,8 @@ namespace phys
 					float appliedImpulse = point.normalImpulse - previousImpulse;
 					Vec3 impulse = manifold.normal * appliedImpulse;
 
-					bodyA->applyImpulse(-impulse, offsetA);
-					bodyB->applyImpulse(impulse, offsetB);
+					bodyA->applyImpulseWithoutWaking(-impulse, offsetA);
+					bodyB->applyImpulseWithoutWaking(impulse, offsetB);
 
 					if (preparedPoint.inverseTangentMass1 <= 0.0f || preparedPoint.inverseTangentMass2 <= 0.0f)
 						continue;
@@ -312,8 +317,8 @@ namespace phys
 						-tangentLimit, tangentLimit);
 					float appliedTangentImpulse1 = point.tangentImpulse1 - previousTangentImpulse1;
 					Vec3 tangentImpulse = preparedPoint.tangent1 * appliedTangentImpulse1;
-					bodyA->applyImpulse(-tangentImpulse, offsetA);
-					bodyB->applyImpulse(tangentImpulse, offsetB);
+					bodyA->applyImpulseWithoutWaking(-tangentImpulse, offsetA);
+					bodyB->applyImpulseWithoutWaking(tangentImpulse, offsetB);
 
 					velocityA = bodyA->getLinearVelocity() + Math3d::cross(bodyA->getAngularVelocity(), offsetA);
 					velocityB = bodyB->getLinearVelocity() + Math3d::cross(bodyB->getAngularVelocity(), offsetB);
@@ -327,14 +332,25 @@ namespace phys
 						-tangentLimit, tangentLimit);
 					float appliedTangentImpulse2 = point.tangentImpulse2 - previousTangentImpulse2;
 					tangentImpulse = preparedPoint.tangent2 * appliedTangentImpulse2;
-					bodyA->applyImpulse(-tangentImpulse, offsetA);
-					bodyB->applyImpulse(tangentImpulse, offsetB);
+					bodyA->applyImpulseWithoutWaking(-tangentImpulse, offsetA);
+					bodyB->applyImpulseWithoutWaking(tangentImpulse, offsetB);
 				}
 			}
 		}
 
 		std::vector<PhysicsWorld::CachedContact> nextCache;
 		nextCache.reserve(contacts.size() * 2);
+		if (world.sleepingEnabled)
+			for (const auto &cached : world.cachedContacts)
+			{
+				const RigidBody *bodyA = world.getBody(cached.bodyA);
+				const RigidBody *bodyB = world.getBody(cached.bodyB);
+				if (bodyA && bodyB
+					&& (bodyA->isSleeping() || bodyB->isSleeping())
+					&& (bodyA->isStatic || bodyA->isSleeping())
+					&& (bodyB->isStatic || bodyB->isSleeping()))
+					nextCache.push_back(cached);
+			}
 		for (const PreparedManifold &prepared : preparedContacts)
 		{
 			const ContactManifold &manifold = *prepared.manifold;

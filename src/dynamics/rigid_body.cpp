@@ -93,7 +93,7 @@ namespace phys
 
     void RigidBody::integrateVelocity(const Vec3 &gravity, float dt)
     {
-        if (isStatic)
+        if (isStatic || sleeping)
             return;
 
         Vec3 acceleration = gravity + force * getInverseMass();
@@ -102,14 +102,14 @@ namespace phys
 
     void RigidBody::integratePosition(float dt)
     {
-        if (isStatic)
+        if (isStatic || sleeping)
             return;
         position += linearVelocity * dt;
     }
 
     void RigidBody::integrateRotation(float dt)
     {
-        if (isStatic)
+        if (isStatic || sleeping)
             return;
 
         Quaternion spin{

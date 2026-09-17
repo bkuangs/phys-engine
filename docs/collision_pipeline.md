@@ -214,5 +214,7 @@ mixed-size-with-floor, and wide-size AABB layouts, with static and moving/resizi
 variants. Tree construction is included in the first timed sample; the tree
 then persists, with proxy maintenance and queries timed together. Fixture
 motion and exact output checks are outside timing for every backend.
-These timings must not be confused with the full-world sphere timings from
-`phys_collision_bench` and `phys_broadphase_bench`.
+These timings must not be confused with the full-world scaling runs from
+`phys_collision_bench` and `phys_broadphase_bench`. Those now default to a seeded
+mix of spheres and boxes over a floor, with 240 warmup steps and 1,200 measured
+steps at every size. An explicit sphere-only mode remains available.

@@ -1,0 +1,91 @@
+INCOMPLETE: initial mixed-scene run rejected because the floor margin was too small
+Date:                       2026-09-17
+Branch at start:            experiment/sleeping-islands
+Source base:                6ff4c52 + working benchmark and sleeping-island changes
+Build:                      Release, Apple Clang 17.0.0.17000604, arm64, -O3 -DNDEBUG
+Hardware:                   Apple M2, macOS
+Command:                    ./build/release-bench/phys_collision_bench 1200 tree mixed 240
+Protocol:                   240 warmup steps then 1200 measured steps at every size, fixed 120 Hz
+Simulated duration:         2 seconds warmup + 10 seconds measured, no per-size caps or world resets
+Counts:                     Dynamic body count shown; one additional static floor
+Scene:                      Half spheres/half unit boxes, seed 42, nonoverlapping jittered two-layer layout
+Floor:                      Top at y=0; thickness adjusted to respect the engine's box-volume limit
+Validation:                 No escaped or fully below-floor objects after warmup or measurement
+Allocation metric:          Engine-only C++ allocation-hook counts; benchmark recording excluded
+Notes:                      Sleeping mode and awake/sleeping counts are reported explicitly below.
+                            The 500-body case failed: body 288 escaped the 28-unit floor half-width.
+                            The final scene increases the margin from 16 to 32 units; these are not final results.
+                            This is a new workload series, not directly comparable to the old short sphere-only runs.
+                            A source fingerprint must remain unchanged for this report to be accepted.
+
+Source SHA-256:             0315d856a6fe0c90b970f51e2b75c7934e389fcacb5e9040a401194910027212
+
+Dynamic bodies:             100
+Static bodies:              1
+Dynamic shapes:             50 spheres, 50 boxes
+Scene:                      mixed-floor
+Sleeping:                   disabled
+Simulation frequency:       120.00 Hz
+Broadphase algorithm:       dynamic AABB tree
+
+Warmup steps:               240 (2.00 simulated seconds)
+Measured steps:             1200 (10.00 simulated seconds)
+Cold first step:            0.11 ms
+Warmup step-time total:     43.58 ms
+
+Floor dimensions:           44.00 x 1.00 x 42.50
+
+Step time (measured interval):
+    first:                   0.20 ms
+    mean:                    0.21 ms
+    p50:                     0.21 ms
+    p95:                     0.22 ms
+    p99:                     0.24 ms
+    max:                     0.42 ms
+
+Deadline misses (>8.33ms):   0 / 1200
+
+Broadphase:
+    possible pairs:          5050
+    candidate pairs:         203
+    mean candidate pairs:    203.10
+    broadphase time:         0.01 ms
+
+Broadphase detail (mean timings):
+    collect active bounds:   0.0003 ms
+    maintain tree:           0.0013 ms
+    query tree:              0.0102 ms
+    sort output pairs:       0.0025 ms
+    map/filter pairs:        0.0001 ms
+
+Broadphase work (last step):
+    tree proxies:            101
+    tree height:             8
+    tree node-pair visits:   2249
+    tight leaf checks:       265
+    proxy reinsertions:      2
+    AABB pairs (pre-filter):  203
+
+Tree maintenance work (measured interval):
+    insertions:              0
+    removals:                0
+    reinsertions:            1179
+
+Narrowphase time:            0.03 ms
+Solver time:                 0.16 ms
+
+Engine heap allocations / step: 15
+
+Contact workload (measured interval):
+    mean manifolds:          142.47
+    min/max manifolds:       111 / 152
+    mean contact points:     233.09
+    mean solved manifolds:   142.47
+    mean awake bodies:       100.00
+    mean sleeping bodies:    0.00
+    max penetration:         0.0570
+
+Scene health (after warmup and measurement): valid, no escaped/below-floor bodies
+    final floor penetration: 0.0049
+    final max linear speed:  1.5661
+    final max angular speed: 3.1424

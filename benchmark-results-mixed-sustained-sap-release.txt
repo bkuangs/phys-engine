@@ -1,0 +1,393 @@
+Sustained mixed-scene scaling benchmark: default invocation
+Date:                       2026-09-17
+Branch at start:            experiment/sleeping-islands
+Source base:                6ff4c52 + working benchmark and sleeping-island changes
+Build:                      Release, Apple Clang 17.0.0.17000604, arm64, -O3 -DNDEBUG
+Hardware:                   Apple M2, macOS
+Command:                    ./build/release-bench/phys_collision_bench
+Protocol:                   Default 240 warmup + 1200 measured steps at every size, fixed 120 Hz
+Backend:                    Default SAP; sleeping status is printed in each report
+Counts:                     Dynamic body count shown; one additional static floor
+Scene:                      Half spheres/half unit boxes, seed 42, nonoverlapping jittered two-layer layout
+Floor:                      Top at y=0; 32-unit margin; thickness respects the engine's box-volume limit
+Validation:                 No escaped or fully below-floor objects after warmup or measurement
+Allocation metric:          Engine-only C++ allocation-hook counts; benchmark recording excluded
+Notes:                      New workload series, not directly comparable to old short sphere-only runs.
+                            A source fingerprint must remain unchanged for this report to be accepted.
+
+Source SHA-256:             c36dce76a0bdcbb4faeae3aead9ca5d4360dff721b43e7afcbe8029609e5e400
+
+Dynamic bodies:             100
+Static bodies:              1
+Dynamic shapes:             50 spheres, 50 boxes
+Scene:                      mixed-floor
+Sleeping:                   disabled
+Simulation frequency:       120.00 Hz
+Broadphase algorithm:       sweep-and-prune
+
+Warmup steps:               240 (2.00 simulated seconds)
+Measured steps:             1200 (10.00 simulated seconds)
+Cold first step:            0.09 ms
+Warmup step-time total:     26.56 ms
+
+Floor dimensions:           76.00 x 0.36 x 74.50
+
+Step time (measured interval):
+    first:                   0.15 ms
+    mean:                    0.19 ms
+    p50:                     0.19 ms
+    p95:                     0.22 ms
+    p99:                     0.25 ms
+    max:                     0.41 ms
+
+Deadline misses (>8.33ms):   0 / 1200
+
+Broadphase:
+    possible pairs:          5050
+    candidate pairs:         201
+    mean candidate pairs:    201.95
+    broadphase time:         0.01 ms
+
+Broadphase detail (mean timings):
+    collect active bounds:   0.0003 ms
+    build sweep records:     0.0001 ms
+    sort sweep records:      0.0007 ms
+    sweep + emit pairs:      0.0025 ms
+    sort output pairs:       0.0020 ms
+    map/filter pairs:        0.0002 ms
+
+Broadphase work (last step):
+    X-window comparisons:    822
+    AABB pairs (pre-filter):  201
+
+Narrowphase time:            0.03 ms
+Solver time:                 0.16 ms
+
+Engine heap allocations / step: 15
+
+Contact workload (measured interval):
+    mean manifolds:          141.14
+    min/max manifolds:       111 / 153
+    mean contact points:     231.43
+    mean solved manifolds:   141.14
+    mean awake bodies:       100.00
+    mean sleeping bodies:    0.00
+    max penetration:         0.0570
+
+Scene health (after warmup and measurement): valid, no escaped/below-floor bodies
+    final floor penetration: 0.0050
+    final max linear speed:  1.5661
+    final max angular speed: 3.1424
+
+Dynamic bodies:             500
+Static bodies:              1
+Dynamic shapes:             250 spheres, 250 boxes
+Scene:                      mixed-floor
+Sleeping:                   disabled
+Simulation frequency:       120.00 Hz
+Broadphase algorithm:       sweep-and-prune
+
+Warmup steps:               240 (2.00 simulated seconds)
+Measured steps:             1200 (10.00 simulated seconds)
+Cold first step:            0.09 ms
+Warmup step-time total:     152.04 ms
+
+Floor dimensions:           88.00 x 0.26 x 88.00
+
+Step time (measured interval):
+    first:                   0.90 ms
+    mean:                    1.19 ms
+    p50:                     1.11 ms
+    p95:                     1.32 ms
+    p99:                     3.02 ms
+    max:                     13.95 ms
+
+Deadline misses (>8.33ms):   3 / 1200
+
+Broadphase:
+    possible pairs:          125250
+    candidate pairs:         1131
+    mean candidate pairs:    1096.88
+    broadphase time:         0.10 ms
+
+Broadphase detail (mean timings):
+    collect active bounds:   0.0016 ms
+    build sweep records:     0.0010 ms
+    sort sweep records:      0.0095 ms
+    sweep + emit pairs:      0.0548 ms
+    sort output pairs:       0.0280 ms
+    map/filter pairs:        0.0015 ms
+
+Broadphase work (last step):
+    X-window comparisons:    10691
+    AABB pairs (pre-filter):  1131
+
+Narrowphase time:            0.18 ms
+Solver time:                 0.91 ms
+
+Engine heap allocations / step: 17
+
+Contact workload (measured interval):
+    mean manifolds:          766.46
+    min/max manifolds:       606 / 823
+    mean contact points:     1206.61
+    mean solved manifolds:   766.46
+    mean awake bodies:       500.00
+    mean sleeping bodies:    0.00
+    max penetration:         0.0563
+
+Scene health (after warmup and measurement): valid, no escaped/below-floor bodies
+    final floor penetration: 0.0052
+    final max linear speed:  1.6297
+    final max angular speed: 4.2100
+
+Dynamic bodies:             1000
+Static bodies:              1
+Dynamic shapes:             500 spheres, 500 boxes
+Scene:                      mixed-floor
+Sleeping:                   disabled
+Simulation frequency:       120.00 Hz
+Broadphase algorithm:       sweep-and-prune
+
+Warmup steps:               240 (2.00 simulated seconds)
+Measured steps:             1200 (10.00 simulated seconds)
+Cold first step:            0.23 ms
+Warmup step-time total:     335.43 ms
+
+Floor dimensions:           98.50 x 0.21 x 97.00
+
+Step time (measured interval):
+    first:                   1.92 ms
+    mean:                    2.33 ms
+    p50:                     2.35 ms
+    p95:                     2.46 ms
+    p99:                     3.02 ms
+    max:                     6.23 ms
+
+Deadline misses (>8.33ms):   0 / 1200
+
+Broadphase:
+    possible pairs:          500500
+    candidate pairs:         2431
+    mean candidate pairs:    2361.79
+    broadphase time:         0.25 ms
+
+Broadphase detail (mean timings):
+    collect active bounds:   0.0034 ms
+    build sweep records:     0.0021 ms
+    sort sweep records:      0.0263 ms
+    sweep + emit pairs:      0.1472 ms
+    sort output pairs:       0.0704 ms
+    map/filter pairs:        0.0031 ms
+
+Broadphase work (last step):
+    X-window comparisons:    31185
+    AABB pairs (pre-filter):  2431
+
+Narrowphase time:            0.35 ms
+Solver time:                 1.70 ms
+
+Engine heap allocations / step: 18
+
+Contact workload (measured interval):
+    mean manifolds:          1565.19
+    min/max manifolds:       1257 / 1671
+    mean contact points:     2340.39
+    mean solved manifolds:   1565.19
+    mean awake bodies:       1000.00
+    mean sleeping bodies:    0.00
+    max penetration:         0.0754
+
+Scene health (after warmup and measurement): valid, no escaped/below-floor bodies
+    final floor penetration: 0.0052
+    final max linear speed:  1.6234
+    final max angular speed: 3.5122
+
+Dynamic bodies:             2500
+Static bodies:              1
+Dynamic shapes:             1250 spheres, 1250 boxes
+Scene:                      mixed-floor
+Sleeping:                   disabled
+Simulation frequency:       120.00 Hz
+Broadphase algorithm:       sweep-and-prune
+
+Warmup steps:               240 (2.00 simulated seconds)
+Measured steps:             1200 (10.00 simulated seconds)
+Cold first step:            0.72 ms
+Warmup step-time total:     857.09 ms
+
+Floor dimensions:           118.00 x 0.15 x 116.50
+
+Step time (measured interval):
+    first:                   5.07 ms
+    mean:                    6.25 ms
+    p50:                     6.33 ms
+    p95:                     6.59 ms
+    p99:                     8.74 ms
+    max:                     12.72 ms
+
+Deadline misses (>8.33ms):   15 / 1200
+
+Broadphase:
+    possible pairs:          3126250
+    candidate pairs:         6259
+    mean candidate pairs:    6101.19
+    broadphase time:         0.89 ms
+
+Broadphase detail (mean timings):
+    collect active bounds:   0.0083 ms
+    build sweep records:     0.0055 ms
+    sort sweep records:      0.0815 ms
+    sweep + emit pairs:      0.5718 ms
+    sort output pairs:       0.2114 ms
+    map/filter pairs:        0.0089 ms
+
+Broadphase work (last step):
+    X-window comparisons:    125796
+    AABB pairs (pre-filter):  6259
+
+Narrowphase time:            0.97 ms
+Solver time:                 4.35 ms
+
+Engine heap allocations / step: 20
+
+Contact workload (measured interval):
+    mean manifolds:          4010.22
+    min/max manifolds:       3092 / 4305
+    mean contact points:     5934.81
+    mean solved manifolds:   4010.22
+    mean awake bodies:       2500.00
+    mean sleeping bodies:    0.00
+    max penetration:         0.0841
+
+Scene health (after warmup and measurement): valid, no escaped/below-floor bodies
+    final floor penetration: 0.0055
+    final max linear speed:  2.3570
+    final max angular speed: 4.5320
+
+Dynamic bodies:             5000
+Static bodies:              1
+Dynamic shapes:             2500 spheres, 2500 boxes
+Scene:                      mixed-floor
+Sleeping:                   disabled
+Simulation frequency:       120.00 Hz
+Broadphase algorithm:       sweep-and-prune
+
+Warmup steps:               240 (2.00 simulated seconds)
+Measured steps:             1200 (10.00 simulated seconds)
+Cold first step:            1.59 ms
+Warmup step-time total:     1840.26 ms
+
+Floor dimensions:           139.00 x 0.11 x 139.00
+
+Step time (measured interval):
+    first:                   10.73 ms
+    mean:                    13.10 ms
+    p50:                     13.20 ms
+    p95:                     13.89 ms
+    p99:                     17.84 ms
+    max:                     68.42 ms
+
+Deadline misses (>8.33ms):   1200 / 1200
+
+Broadphase:
+    possible pairs:          12502500
+    candidate pairs:         12583
+    mean candidate pairs:    12203.76
+    broadphase time:         2.24 ms
+
+Broadphase detail (mean timings):
+    collect active bounds:   0.0159 ms
+    build sweep records:     0.0108 ms
+    sort sweep records:      0.1858 ms
+    sweep + emit pairs:      1.5409 ms
+    sort output pairs:       0.4629 ms
+    map/filter pairs:        0.0191 ms
+
+Broadphase work (last step):
+    X-window comparisons:    363754
+    AABB pairs (pre-filter):  12583
+
+Narrowphase time:            1.93 ms
+Solver time:                 8.84 ms
+
+Engine heap allocations / step: 21
+
+Contact workload (measured interval):
+    mean manifolds:          8015.57
+    min/max manifolds:       6269 / 8581
+    mean contact points:     11951.88
+    mean solved manifolds:   8015.57
+    mean awake bodies:       5000.00
+    mean sleeping bodies:    0.00
+    max penetration:         0.0752
+
+Scene health (after warmup and measurement): valid, no escaped/below-floor bodies
+    final floor penetration: 0.0085
+    final max linear speed:  2.3109
+    final max angular speed: 4.6895
+
+Dynamic bodies:             10000
+Static bodies:              1
+Dynamic shapes:             5000 spheres, 5000 boxes
+Scene:                      mixed-floor
+Sleeping:                   disabled
+Simulation frequency:       120.00 Hz
+Broadphase algorithm:       sweep-and-prune
+
+Warmup steps:               240 (2.00 simulated seconds)
+Measured steps:             1200 (10.00 simulated seconds)
+Cold first step:            3.98 ms
+Warmup step-time total:     3883.62 ms
+
+Floor dimensions:           170.50 x 0.07 x 170.50
+
+Step time (measured interval):
+    first:                   22.77 ms
+    mean:                    27.32 ms
+    p50:                     27.45 ms
+    p95:                     29.90 ms
+    p99:                     36.60 ms
+    max:                     85.13 ms
+
+Deadline misses (>8.33ms):   1200 / 1200
+
+Broadphase:
+    possible pairs:          50005000
+    candidate pairs:         25465
+    mean candidate pairs:    24682.76
+    broadphase time:         5.56 ms
+
+Broadphase detail (mean timings):
+    collect active bounds:   0.0323 ms
+    build sweep records:     0.0216 ms
+    sort sweep records:      0.3880 ms
+    sweep + emit pairs:      4.0656 ms
+    sort output pairs:       1.0110 ms
+    map/filter pairs:        0.0395 ms
+
+Broadphase work (last step):
+    X-window comparisons:    1034936
+    AABB pairs (pre-filter):  25465
+
+Narrowphase time:            3.90 ms
+Solver time:                 17.68 ms
+
+Engine heap allocations / step: 22
+
+Contact workload (measured interval):
+    mean manifolds:          16137.58
+    min/max manifolds:       12542 / 17384
+    mean contact points:     23740.00
+    mean solved manifolds:   16137.58
+    mean awake bodies:       10000.00
+    mean sleeping bodies:    0.00
+    max penetration:         0.0863
+
+Scene health (after warmup and measurement): valid, no escaped/below-floor bodies
+    final floor penetration: 0.0055
+    final max linear speed:  2.2595
+    final max angular speed: 5.6097
+
+
+Source stability: verified unchanged across build and measured run.

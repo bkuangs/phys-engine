@@ -8,6 +8,9 @@
 namespace phys
 {
 
+    class PhysicsWorld;
+    class SequentialImpulseSolver;
+
     class RigidBody
     {
     public:
@@ -47,11 +50,25 @@ namespace phys
 
         Vec3 getPosition() const { return position; }
         Vec3 getLinearVelocity() const { return linearVelocity; }
-        void setLinearVelocity(const Vec3 &velocity) { linearVelocity = velocity; }
+        bool isSleeping() const { return !isStatic && sleeping; }
+        void wakeUp()
+        {
+            sleeping = false;
+            wakeRequested = true;
+        }
+        void setLinearVelocity(const Vec3 &velocity)
+        {
+            wakeUp();
+            linearVelocity = velocity;
+        }
         void applyLinearImpulse(const Vec3 &impulse)
         {
             if (!isStatic)
+            {
+                if (impulse.x != 0.0f || impulse.y != 0.0f || impulse.z != 0.0f)
+                    wakeUp();
                 linearVelocity += impulse * getInverseMass();
+            }
         }
 
         float getInverseMass() const
@@ -62,13 +79,21 @@ namespace phys
         void applyForce(const Vec3 &value)
         {
             if (!isStatic)
+            {
+                if (value.x != 0.0f || value.y != 0.0f || value.z != 0.0f)
+                    wakeUp();
                 force += value;
+            }
         }
         void clearForces() { force = Vec3::zero(); }
 
         Quaternion getRotation() const { return rotation; }
         Vec3 getAngularVelocity() const { return angularVelocity; }
-        void setAngularVelocity(const Vec3 &velocity) { angularVelocity = velocity; }
+        void setAngularVelocity(const Vec3 &velocity)
+        {
+            wakeUp();
+            angularVelocity = velocity;
+        }
         Mat3 getInverseInertiaWorld() const
         {
             Mat3 rotationMatrix = rotation.toMat3();
@@ -78,8 +103,9 @@ namespace phys
         {
             if (isStatic)
                 return;
-            linearVelocity += impulse * getInverseMass();
-            angularVelocity += getInverseInertiaWorld() * Math3d::cross(offset, impulse);
+            if (impulse.x != 0.0f || impulse.y != 0.0f || impulse.z != 0.0f)
+                wakeUp();
+            applyImpulseWithoutWaking(impulse, offset);
         }
 
         static bool createSphere(float radius, Vec3 position, float density,
@@ -92,6 +118,19 @@ namespace phys
                               std::string &errorMessage);
 
     private:
+        friend class PhysicsWorld;
+        friend class SequentialImpulseSolver;
+
+        void applyImpulseWithoutWaking(const Vec3 &impulse, const Vec3 &offset)
+        {
+            if (isStatic)
+                return;
+            linearVelocity += impulse * getInverseMass();
+            angularVelocity += getInverseInertiaWorld() * Math3d::cross(offset, impulse);
+        }
+
+        bool sleeping = false;
+        bool wakeRequested = true;
         Vec3 position;
         Vec3 linearVelocity;
         Quaternion rotation = Quaternion::identity();

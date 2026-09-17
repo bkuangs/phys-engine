@@ -38,6 +38,40 @@ step(dt)
     integrate corrected velocities into positions / orientations
 ```
 
+### Opt-in sleeping islands
+
+`PhysicsWorld::setSleepingEnabled(true)` adds sleep/wake orchestration around the
+existing pipeline. The world joins contact-connected dynamic bodies using
+slot-indexed disjoint sets. Static bodies remain collision participants but
+never join two dynamic islands through a common floor.
+
+Before velocity integration, the previous contact graph propagates wake requests
+and support edits to connected bodies. After narrowphase, the current graph
+wakes any island touched by an awake body or a changed static body. Bodies newly
+woken in this second pass receive the same step's gravity/forces before solving;
+already-awake bodies are not integrated twice. Candidate and manifold ordering
+remain unchanged.
+
+Each dynamic body must remain below the linear/angular sleep thresholds for
+0.5 simulation seconds; an island uses its least-quiet member's time. The
+thresholds are 0.05 world units/s and 0.05 rad/s. Sleep zeroes velocities, skips
+integration and solving, and retains warm-start cache entries for later waking.
+Internal solver impulses do not reset quiet timers; external forces, impulses,
+velocity setters, and explicit `wakeUp()` requests do.
+
+Body properties and collider geometry are publicly mutable. While sleeping is
+enabled, the world compares them with end-of-step snapshots to detect edits
+without treating mutable getter calls as wake requests. Lifetime operations wake
+affected contacts before removing their supports; generation checks prevent
+recycled slots from inheriting stale contact identities. Gravity changes wake
+all bodies.
+
+This implementation still recomputes bounds, broadphase pairs, and narrowphase
+contacts for sleeping bodies. Contact geometry remains available to queries and
+debug drawing; skipped manifolds apply no impulses that step. It does not add
+parallel solving, CCD, or a sleeping-contact geometry cache. Disabling sleeping
+wakes every body immediately and bypasses island/snapshot processing.
+
 ## Hot Path
 
 Efficient, real-time coding principles are a major point of interest and learning here.

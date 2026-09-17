@@ -5,6 +5,7 @@
 #include <chrono>
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace phys
 {
@@ -19,6 +20,28 @@ namespace phys
             return std::chrono::duration<double, std::milli>(Clock::now() - start).count();
         }
 
+        bool sameVector(const Vec3 &a, const Vec3 &b)
+        {
+            return a.x == b.x && a.y == b.y && a.z == b.z;
+        }
+
+        bool samePose(const Transform &a, const Transform &b)
+        {
+            return sameVector(a.position, b.position)
+                && a.orientation.x == b.orientation.x && a.orientation.y == b.orientation.y
+                && a.orientation.z == b.orientation.z && a.orientation.w == b.orientation.w;
+        }
+
+        bool sameColliderGeometry(const Collider &a, const Collider &b)
+        {
+            if (a.body != b.body || !samePose(a.localTransform, b.localTransform)
+                || a.shape.index() != b.shape.index())
+                return false;
+            if (const auto *sphere = std::get_if<Sphere>(&a.shape))
+                return sphere->radius == std::get<Sphere>(b.shape).radius;
+            return sameVector(std::get<Box>(a.shape).halfExtents, std::get<Box>(b.shape).halfExtents);
+        }
+
     }
 
     RigidBodyHandle PhysicsWorld::addBody(const RigidBody &body)
@@ -30,11 +53,13 @@ namespace phys
 
             Slot &slot = slots[index];
             slot.body = body;
+            slot.body.wakeUp();
             slot.alive = true;
             return {index, slot.generation};
         }
 
         slots.push_back(Slot{body, 0, true});
+        slots.back().body.wakeUp();
         return {static_cast<uint32_t>(slots.size() - 1), 0};
     }
 
@@ -91,6 +116,7 @@ namespace phys
         if (!slot.alive || slot.generation != handle.generation)
             return;
 
+        wakeContacts(handle);
         slot.alive = false;
         slot.generation++;
         freeList.push_back(handle.index);
@@ -134,8 +160,10 @@ namespace phys
 
     ColliderHandle PhysicsWorld::addCollider(const Collider &collider)
     {
-        if (!getBody(collider.body))
+        RigidBody *body = getBody(collider.body);
+        if (!body)
             return {};
+        body->wakeUp();
 
         if (!freeColliderList.empty())
         {
@@ -145,6 +173,8 @@ namespace phys
             ColliderSlot &slot = colliderSlots[index];
             slot.collider = collider;
             slot.alive = true;
+            if (index < sleepColliders.size())
+                sleepColliders[index] = collider;
             return {index, slot.generation};
         }
 
@@ -161,6 +191,9 @@ namespace phys
         if (!slot.alive || slot.generation != handle.generation)
             return;
 
+        if (RigidBody *body = getBody(slot.collider.body))
+            body->wakeUp();
+        wakeContacts(slot.collider.body);
         slot.alive = false;
         slot.generation++;
         freeColliderList.push_back(handle.index);
@@ -190,17 +223,200 @@ namespace phys
         return &slot.collider;
     }
 
+    void PhysicsWorld::setSleepingEnabled(bool enabled)
+    {
+        if (sleepingEnabled == enabled)
+            return;
+        sleepingEnabled = enabled;
+        sleepStates.clear();
+        sleepColliders.clear();
+        for (Slot &slot : slots)
+            if (slot.alive)
+                slot.body.wakeUp();
+    }
+
+    void PhysicsWorld::wakeContacts(RigidBodyHandle body)
+    {
+        if (!sleepingEnabled)
+            return;
+        for (const ContactManifold &contact : currentContacts)
+        {
+            if (contact.bodyA == body)
+            {
+                RigidBody *other = getBody(contact.bodyB);
+                if (other && !other->isStatic)
+                    other->wakeUp();
+            }
+            if (contact.bodyB == body)
+            {
+                RigidBody *other = getBody(contact.bodyA);
+                if (other && !other->isStatic)
+                    other->wakeUp();
+            }
+        }
+    }
+
+    uint32_t PhysicsWorld::sleepRoot(uint32_t index)
+    {
+        while (sleepStates[index].parent != index)
+        {
+            sleepStates[index].parent = sleepStates[sleepStates[index].parent].parent;
+            index = sleepStates[index].parent;
+        }
+        return index;
+    }
+
+    void PhysicsWorld::wakeSleepIslands()
+    {
+        for (uint32_t index = 0; index < slots.size(); ++index)
+        {
+            SleepState &state = sleepStates[index];
+            state.parent = index;
+            state.hasAwake = state.hasSleeping = state.needsWake = false;
+        }
+        for (const ContactManifold &contact : currentContacts)
+        {
+            RigidBody *a = getBody(contact.bodyA);
+            RigidBody *b = getBody(contact.bodyB);
+            if (!a || !b || contact.pointCount == 0)
+                continue;
+            // A shared static floor must not join otherwise independent islands.
+            if (!a->isStatic && !b->isStatic)
+            {
+                uint32_t rootA = sleepRoot(contact.bodyA.index);
+                uint32_t rootB = sleepRoot(contact.bodyB.index);
+                sleepStates[std::max(rootA, rootB)].parent = std::min(rootA, rootB);
+            }
+            else if (a->isStatic && a->wakeRequested && !b->isStatic)
+                b->wakeUp();
+            else if (b->isStatic && b->wakeRequested && !a->isStatic)
+                a->wakeUp();
+        }
+        for (uint32_t index = 0; index < slots.size(); ++index)
+        {
+            const Slot &slot = slots[index];
+            if (!slot.alive || slot.body.isStatic)
+                continue;
+            SleepState &island = sleepStates[sleepRoot(index)];
+            island.hasAwake |= !slot.body.isSleeping();
+            island.hasSleeping |= slot.body.isSleeping();
+            island.needsWake |= slot.body.wakeRequested;
+        }
+        for (uint32_t index = 0; index < slots.size(); ++index)
+        {
+            Slot &slot = slots[index];
+            if (!slot.alive || slot.body.isStatic)
+                continue;
+            const SleepState &island = sleepStates[sleepRoot(index)];
+            if (island.needsWake || (island.hasAwake && island.hasSleeping))
+            {
+                slot.body.wakeUp();
+                sleepStates[index].quietTime = 0.0f;
+            }
+        }
+    }
+
+    void PhysicsWorld::prepareSleeping()
+    {
+        sleepStates.resize(slots.size());
+        std::size_t previousColliderCount = sleepColliders.size();
+        sleepColliders.resize(colliderSlots.size());
+        bool gravityChanged = !sameVector(gravity, sleepGravity);
+        for (uint32_t index = 0; index < slots.size(); ++index)
+        {
+            Slot &slot = slots[index];
+            if (!slot.alive)
+                continue;
+            const SleepState &previous = sleepStates[index];
+            const RigidBody &body = slot.body;
+            if (gravityChanged || previous.mass != body.mass
+                || previous.isStatic != body.isStatic || previous.friction != body.friction
+                || previous.restitution != body.restitution
+                || !samePose(previous.pose, {body.getPosition(), body.getRotation()}))
+                slot.body.wakeUp();
+        }
+        // Collider fields are publicly mutable, so compare geometry, not getter access.
+        for (uint32_t index = 0; index < colliderSlots.size(); ++index)
+        {
+            const ColliderSlot &slot = colliderSlots[index];
+            if (!slot.alive || sameColliderGeometry(slot.collider, sleepColliders[index]))
+                continue;
+            if (index < previousColliderCount)
+                if (RigidBody *oldBody = getBody(sleepColliders[index].body))
+                    oldBody->wakeUp();
+            if (RigidBody *body = getBody(slot.collider.body))
+                body->wakeUp();
+        }
+        wakeSleepIslands();
+    }
+
+    void PhysicsWorld::finishSleeping(float dt)
+    {
+        constexpr float quietSpeedSquared = 0.05f * 0.05f;
+        constexpr float timeToSleep = 0.5f;
+        for (SleepState &state : sleepStates)
+            state.islandQuietTime = std::numeric_limits<float>::max();
+        for (uint32_t index = 0; index < slots.size(); ++index)
+        {
+            Slot &slot = slots[index];
+            if (!slot.alive || slot.body.isStatic)
+                continue;
+            SleepState &state = sleepStates[index];
+            const RigidBody &body = slot.body;
+            if (!body.isSleeping())
+            {
+                if (!body.wakeRequested && dt > 0.0f && std::isfinite(dt)
+                    && Math3d::dot(body.linearVelocity, body.linearVelocity) <= quietSpeedSquared
+                    && Math3d::dot(body.angularVelocity, body.angularVelocity) <= quietSpeedSquared)
+                    state.quietTime = std::min(state.quietTime + dt, timeToSleep);
+                else
+                    state.quietTime = 0.0f;
+            }
+            SleepState &island = sleepStates[sleepRoot(index)];
+            island.islandQuietTime = std::min(island.islandQuietTime, state.quietTime);
+        }
+        for (uint32_t index = 0; index < slots.size(); ++index)
+        {
+            Slot &slot = slots[index];
+            if (!slot.alive)
+                continue;
+            RigidBody &body = slot.body;
+            if (!body.isStatic && sleepStates[sleepRoot(index)].islandQuietTime >= timeToSleep)
+            {
+                body.sleeping = true;
+                body.linearVelocity = body.angularVelocity = Vec3::zero();
+            }
+            SleepState &state = sleepStates[index];
+            state.pose = {body.getPosition(), body.getRotation()};
+            state.mass = body.mass;
+            state.isStatic = body.isStatic;
+            state.friction = body.friction;
+            state.restitution = body.restitution;
+            body.wakeRequested = false;
+        }
+        for (uint32_t index = 0; index < colliderSlots.size(); ++index)
+            if (colliderSlots[index].alive)
+                sleepColliders[index] = colliderSlots[index].collider;
+        sleepGravity = gravity;
+    }
+
     void PhysicsWorld::step(float dt)
     {
         auto stepStart = Clock::now();
 
+        if (sleepingEnabled)
+            prepareSleeping();
+
         auto velocityStart = Clock::now();
 
         // Apply gravity to active bodies
-        for (Slot &slot : slots)
+        for (uint32_t index = 0; index < slots.size(); ++index)
         {
+            Slot &slot = slots[index];
             if (!slot.alive)
                 continue;
+            if (sleepingEnabled)
+                sleepStates[index].integratedVelocity = !slot.body.isSleeping();
             slot.body.integrateVelocity(gravity, dt);
         }
         stats.integrateVelocityMs = elapsedMs(velocityStart);
@@ -346,6 +562,16 @@ namespace phys
         stats.narrowPhaseMs = elapsedMs(narrowPhaseStart);
         stats.contactCount = currentContacts.size();
 
+        if (sleepingEnabled)
+        {
+            wakeSleepIslands();
+            // Contacts can wake a previously sleeping island after gravity integration.
+            for (uint32_t index = 0; index < slots.size(); ++index)
+                if (slots[index].alive && !sleepStates[index].integratedVelocity
+                    && !slots[index].body.isSleeping())
+                    slots[index].body.integrateVelocity(gravity, dt);
+        }
+
         auto solverStart = Clock::now();
         SequentialImpulseSolver::solve(currentContacts, *this, dt);
         stats.solverMs = elapsedMs(solverStart);
@@ -363,6 +589,17 @@ namespace phys
         }
         stats.integratePoseMs = elapsedMs(poseStart);
 
+        if (sleepingEnabled)
+            finishSleeping(dt);
+        stats.awakeBodyCount = stats.sleepingBodyCount = 0;
+        for (const Slot &slot : slots)
+            if (slot.alive && !slot.body.isStatic)
+            {
+                if (slot.body.isSleeping())
+                    ++stats.sleepingBodyCount;
+                else
+                    ++stats.awakeBodyCount;
+            }
         stats.totalMs = elapsedMs(stepStart);
     }
 

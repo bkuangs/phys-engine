@@ -10,6 +10,10 @@ improved SAP further using a fresh, repeated comparison.
 Opt-in [uniform-grid](#uniform-grid-prototype) and
 [dynamic-tree](#dynamic-aabb-tree-experiment) prototypes are evaluated below;
 SAP remains the engine default.
+The current default scaling benchmark is now the
+[sustained mixed scene](#sustained-mixed-scene-scaling), not the short sphere-only
+workload used by the early reports. Results from different workload protocols
+must not be treated as before/after optimization comparisons.
 
 ## Comparable checkpoints
 
@@ -42,8 +46,8 @@ The initial three checkpoint runs use the existing headless sphere-field benchma
   narrowphase, and solving, but excluding world creation and rendering.
 
 Release uses Apple Clang 17.0.0.17000604 with
-`-O3 -DNDEBUG -std=c++20 -arch arm64`. Both benchmark executables currently run
-the same sphere workload; the broadphase executable is not an isolated SAP
+`-O3 -DNDEBUG -std=c++20 -arch arm64`. Both benchmark executables used
+the same sphere workload for those captures; the broadphase executable is not an isolated SAP
 microbenchmark.
 
 These are single, short runs, not a controlled statistical study. System load,
@@ -583,7 +587,8 @@ The subsequent indexing change and its measurements are described below.
 **Sleeping/awake islands** are a separate, larger opportunity: the box scene
 keeps spending almost all its CPU time solving contacts despite negligible
 motion. Sleeping colliders must remain available to active-body collision
-queries and wake correctly.
+queries and wake correctly. The subsequent opt-in implementation is measured
+under [sleeping islands](#sleeping-islands).
 
 For the sphere workload, samples concentrate in the node-pair traversal loop
 and its child-stack paths. Optimized source-line attribution does not establish
@@ -696,6 +701,137 @@ angular-response, floor, and world/backend checks continue to pass.
 **This optimization is retained.** It changes neither the iteration budget
 nor the physical matching rules, and directly removes the sampled search work.
 
+## Sleeping islands
+
+The `experiment/sleeping-islands` branch adds opt-in, contact-connected sleeping
+on top of the indexed solver. All members of a dynamic island must remain at or
+below 0.05 units/s linear speed and 0.05 rad/s angular speed for 0.5 simulation
+seconds without wake requests. Static floors do not connect independent islands.
+Sleeping bodies skip integration and constraint solving, but remain in
+broadphase/narrowphase and keep their contact geometry and warm-start cache.
+See [architecture](architecture.md#opt-in-sleeping-islands) for wake ordering
+and mutation handling.
+
+The [comparison report](../benchmark-results-sleeping-release.txt) records three
+interleaved runs for a preserved pre-change executable, the new executable with
+sleeping disabled, and that same executable with sleeping enabled. All use the
+Release flags `-O3 -DNDEBUG`, Apple M2, and the dynamic-tree backend. No CPU
+sampler or allocation-counting hook ran during timing.
+
+Step times below are medians of three per-run means, in milliseconds:
+
+| Workload | Before change | Sleeping disabled | Sleeping enabled |
+| --- | ---: | ---: | ---: |
+| 512 settled boxes | 1.7553 | 1.8131 | 0.2372 |
+| 10,000 moving spheres | 4.8844 | 4.8794 | 5.1632 |
+
+The primary same-executable box comparison improves full-step time by about
+**7.64x (86.9% less time)**. Solver time falls from 1.5947 to 0.0153 ms.
+All three sleeping runs retain 512 manifolds / 2,048 contact points, keep all
+512 dynamic bodies asleep, solve zero manifolds, and perform no tree
+reinsertions. Remaining cost is primarily narrowphase (0.1650 ms); retaining
+full collision detection intentionally leaves this work in place.
+
+Each box run warms for 240 steps before its five-second timed interval. The
+sleeping driver's warmup and end-of-run checks require every box to be asleep,
+not just near-zero mean velocity. The non-sleeping runs show some shared-machine
+load variation; the before/disabled difference does not establish a regression
+or speedup from the disabled feature.
+
+The moving-sphere control repeats fresh 25-step worlds for three seconds per
+run. No sphere sleeps in these short batches. Enabling island construction and
+mutation snapshots costs about **5.8%** in this workload, which is why sleeping
+remains opt-in rather than an unconditional throughput improvement.
+
+These are unpaced, fixed-1/120-second simulations and report mean step costs,
+not a paced deadline or worst-case-latency guarantee. Reproduce the comparison
+using the same executable:
+
+```sh
+cmake --build build/release-bench --target phys_cpu_profile -j 4
+./build/release-bench/phys_cpu_profile boxes 5
+./build/release-bench/phys_cpu_profile boxes 5 --sleep
+./build/release-bench/phys_cpu_profile spheres 3
+./build/release-bench/phys_cpu_profile spheres 3 --sleep
+```
+
+`--sleep` can be combined with the existing `--wait` sampling handshake.
+Without it, the profiling workloads remain always active.
+
+## Sustained mixed-scene scaling
+
+The default scaling benchmark now uses a seeded, balanced mixture of radius-0.5
+spheres and unit boxes above a static floor. Objects start in two shallow,
+jittered layers without overlap. The mix is shuffled with seed 42 and contains
+equal numbers of spheres and boxes at every default scale. Body-count labels
+refer to dynamic bodies; the floor is one additional static body.
+
+Every scale runs **240 warmup steps followed by 1,200 measured steps at 120 Hz**:
+two simulated seconds plus ten measured seconds. Explicit step-count arguments
+apply exactly to every body count. The former 5,000/10,000-body caps are removed.
+Warmup is excluded from percentiles, deadline counts, stage means, and allocation
+counts. Cold first-step cost and total warmup step time are reported separately.
+The `first` value under measured step timing is the first step after warmup.
+Step timings use the engine's existing `StepStats.totalMs`; scene creation,
+health checks, sample recording, and reporting are outside those timings.
+
+The floor has a 32-unit margin around the spawn footprint. Its thickness is
+`min(1, 0.5 * BodyLimits::maxSize / floorArea)`, keeping its top at y=0 while
+respecting the engine's volume limit. An initial 16-unit margin was rejected
+when a rolling body left the floor in the 500-body case; that
+[incomplete run](../benchmark-results-mixed-initial-floor-failed.txt) is not a
+valid performance baseline.
+
+The benchmark checks tracked bodies after warmup and after measurement. Non-finite
+state, invalid bounds, or objects completely outside/below the floor fail the run
+instead of yielding a misleading success. It also reports final floor penetration,
+linear/angular speeds, measured contact load and maximum contact penetration.
+These endpoint checks are not a proof of perfect constraint stability.
+
+The allocator scope now surrounds only `PhysicsWorld::step()`, excluding the
+benchmark's sample-vector growth and reporting. These remain C++ allocation-hook
+counts, not a count of every possible allocator API or worker-thread allocation.
+Sleeping mode, mean awake/sleeping bodies, and mean solved manifolds are explicit.
+
+### First long-run results
+
+These runs were recorded on `experiment/sleeping-islands` after coordinating
+with the concurrent sleeping work. Sleeping was **disabled** for both runs.
+The same source SHA-256 was recorded and verified unchanged across each build
+and measurement, so the results do not mix source revisions during a run.
+
+| Dynamic bodies | SAP mean | SAP p95 | Tree mean | Tree p95 |
+| ---: | ---: | ---: | ---: | ---: |
+| 100 | 0.19 ms | 0.22 ms | 0.21 ms | 0.23 ms |
+| 500 | 1.19 ms | 1.32 ms | 1.20 ms | 1.28 ms |
+| 1,000 | 2.33 ms | 2.46 ms | 2.60 ms | 2.73 ms |
+| 2,500 | 6.25 ms | 6.59 ms | 6.93 ms | 7.41 ms |
+| 5,000 | 13.10 ms | 13.89 ms | 13.75 ms | 14.50 ms |
+| 10,000 | 27.32 ms | 29.90 ms | 30.94 ms | 34.97 ms |
+
+All cases measured 1,200 steps and passed the population/floor checks. SAP and
+tree produced identical contact-load and scene-health results. At 10,000
+dynamic bodies, the run averaged 16,137.58 manifolds and 23,740 contact points.
+SAP spent 17.68 ms in the solver, 3.90 ms in narrowphase, and 5.56 ms in broadphase;
+the tree spent 17.64, 3.91, and 9.22 ms respectively.
+
+This is far more contact-heavy than the earlier short free-falling-sphere
+workload. It also shows that the tree is not universally fastest: SAP was faster
+for this broad, shallow mixed scene. Neither backend met the 8.33 ms deadline
+at 5,000 or 10,000 bodies; both missed all 1,200 measured deadlines there.
+The 2,500-body runs missed 15 deadlines with SAP and 32 with the tree.
+
+These are single long sweeps per backend, not multi-seed confidence intervals
+or real-time guarantees. Occasional shared-machine spikes remain visible in
+the raw reports. The longer sample count improves percentile usefulness but
+does not make this one scene representative of every simulation.
+
+Raw reports:
+[default SAP](../benchmark-results-mixed-sustained-sap-release.txt) and
+[explicit tree](../benchmark-results-mixed-sustained-tree-release.txt).
+Historical short sphere reports are retained and are not directly comparable
+to this new baseline.
+
 ## Reproducing the Release workload
 
 Build the selected source revision in a separate directory to leave the
@@ -708,27 +844,37 @@ cmake -S . -B build/release-bench \
   -DPHYS_BUILD_BENCHMARKS=ON \
   -DBUILD_TESTING=ON
 cmake --build build/release-bench --target phys_collision_bench -j 4
-./build/release-bench/phys_collision_bench 10
+./build/release-bench/phys_collision_bench
 ```
 
-The algorithm argument is optional and defaults to `sap`. To compare the
-experimental backends, use the same sample argument:
+The shared scaling CLI is:
+
+```text
+[measured_steps=1200] [sap|grid|tree] [mixed|spheres] [warmup_steps=240]
+```
+
+Both scaling executables use these defaults. To compare backends, keep the
+scene, warmup, and measured steps identical:
 
 ```sh
-./build/release-bench/phys_collision_bench 10 sap
-./build/release-bench/phys_collision_bench 10 grid
-./build/release-bench/phys_collision_bench 10 tree
+./build/release-bench/phys_collision_bench 1200 sap mixed 240
+./build/release-bench/phys_collision_bench 1200 grid mixed 240
+./build/release-bench/phys_collision_bench 1200 tree mixed 240
+./build/release-bench/phys_collision_bench 1200 tree spheres 240
 cmake --build build/release-bench --target phys_broadphase_compare -j 4
 ./build/release-bench/phys_broadphase_compare 10
 ```
 
-`phys_broadphase_bench` accepts the same optional `sap`/`grid`/`tree` argument as
-`phys_collision_bench`; both run the full-world sphere workload.
+`phys_broadphase_bench` shares the complete scaling runner with
+`phys_collision_bench`; it is not an isolated broadphase query benchmark.
+`phys_broadphase_compare` remains the separate query-only comparison, and
+`phys_cpu_profile spheres` retains the original profiling workload.
 
 These commands benchmark the currently checked-out code. Use `fd8f5a1` for the
 recorded all-pairs implementation and `9b9bc30` for the original indexed SAP,
 with the same compiler and workload, when repeating the comparison. The
 contiguous-record results were measured on the subsequent layout patch, before
-it was committed. Increasing the sample argument also changes how long each
-world evolves, so compare runs with matching
-arguments rather than mixing sample counts.
+it was committed. Historical commands use their recorded revisions and old
+sample-cap behavior; `10 tree spheres 0` now means exactly ten measured steps
+at every size, not the former adaptive counts. Increasing the sample argument
+also changes how long each world evolves, so compare matching protocols.

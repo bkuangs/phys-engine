@@ -51,6 +51,9 @@ namespace phys
         const Collider *getCollider(ColliderHandle handle) const;
         const std::vector<ContactManifold> &contacts() const { return currentContacts; }
 
+        void setSleepingEnabled(bool enabled);
+        bool isSleepingEnabled() const { return sleepingEnabled; }
+
         void step(float dt);
 
         const StepStats &lastStepStats() const { return stats; }
@@ -94,6 +97,33 @@ namespace phys
         std::vector<ContactManifold> currentContacts;
         std::vector<CachedContact> cachedContacts; // Sorted by ordered body handles; stable within each pair.
         StepStats stats;
+
+        struct SleepState
+        {
+            Transform pose{};
+            float mass = 0.0f;
+            float restitution = 0.0f;
+            float friction = 0.0f;
+            bool isStatic = false;
+            bool integratedVelocity = false;
+            uint32_t parent = 0;
+            bool hasAwake = false;
+            bool hasSleeping = false;
+            bool needsWake = false;
+            float quietTime = 0.0f;
+            float islandQuietTime = 0.0f;
+        };
+
+        bool sleepingEnabled = false;
+        Vec3 sleepGravity{};
+        std::vector<SleepState> sleepStates;
+        std::vector<Collider> sleepColliders;
+
+        void wakeContacts(RigidBodyHandle body);
+        uint32_t sleepRoot(uint32_t index);
+        void wakeSleepIslands();
+        void prepareSleeping();
+        void finishSleeping(float dt);
     };
 
 }

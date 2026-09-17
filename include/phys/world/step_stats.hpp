@@ -21,6 +21,9 @@ struct StepStats
     std::size_t possiblePairs = 0; // All live, valid collider pairs on different bodies.
     std::size_t candidatePairs = 0;
     std::size_t contactCount = 0;
+    std::size_t solvedContactCount = 0;
+    std::size_t awakeBodyCount = 0; // Dynamic bodies, after the step.
+    std::size_t sleepingBodyCount = 0;
 };
 
 }

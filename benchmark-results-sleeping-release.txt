@@ -1,0 +1,60 @@
+Opt-in sleeping-island comparison
+Date:                       2026-09-17
+Branch:                     experiment/sleeping-islands
+Baseline source:            6ff4c52, preserved before sleeping implementation
+Sleeping source:            6ff4c52 + uncommitted opt-in sleeping/island changes
+Hardware/compiler:          Apple M2, macOS, Apple Clang 17.0.0.17000604, arm64
+Build:                      Release, -O3 -DNDEBUG -std=c++20 -arch arm64
+Backend:                    Dynamic AABB tree; indexed warm start; eight solver iterations
+Driver:                     phys_cpu_profile, no CPU sampler or allocation-counting hook
+Variants:                   baseline=preserved executable; disabled/enabled=same new executable
+Box commands:               phys_cpu_profile boxes 5
+                            phys_cpu_profile boxes 5 --sleep
+Box workload:               512 dynamic unit boxes in 256 two-high stacks; one static floor
+Box protocol:               240 warmup steps, then continuously step the same world for 5 seconds
+Sphere commands:            phys_cpu_profile spheres 3
+                            phys_cpu_profile spheres 3 --sleep
+Sphere workload:            10000 moving spheres, seed 42; repeat fresh 25-step batches for 3 seconds
+Simulation:                 Fixed 1/120-second timestep; unpaced, not a real-time deadline test
+Sleep policy:               All island members quiet for 0.5 seconds; <=0.05 units/s and <=0.05 rad/s
+Protocol:                   Three sequential/interleaved runs per variant/workload
+Order for each workload:    baseline-1, disabled-1, enabled-1, enabled-2, baseline-2,
+                            disabled-2, disabled-3, enabled-3, baseline-3
+Summary:                    Medians of per-run means; all times below are milliseconds
+Notes:                      Short shared-machine measurements; non-sleeping box runs show load variation.
+                            Concurrent mixed-workload benchmark additions do not change these profiling scenes.
+                            Collision detection/contact geometry remain active while bodies sleep.
+                            No tail-latency or paced deadline claim is made.
+
+Workload invariants
+All box runs:               512 min/max manifolds, 2048 contact points at warmup, zero reinsertions
+All enabled box runs:       512 min/mean sleeping bodies, zero awake bodies, zero solved manifolds
+All disabled box runs:      Zero sleeping bodies, 512 awake bodies, 512 solved manifolds per step
+All enabled sphere runs:    Zero mean sleeping bodies
+Box final speeds:           At most 0.05 units/s and 0.05 rad/s in every run; enabled runs report zero
+
+Median full-step means
+scene,baseline,disabled,enabled,disabled_over_enabled
+boxes,1.7553,1.8131,0.2372,7.6438
+spheres,4.8844,4.8794,5.1632,0.9450
+
+Per-run measurements
+scene,variant,run,mean_step_ms,mean_solver_ms,mean_narrowphase_ms,mean_broadphase_ms,steps
+boxes,baseline,1,1.7407,1.5323,0.1664,0.0337,2874
+boxes,disabled,1,1.7288,1.5241,0.1628,0.0332,2892
+boxes,enabled,1,0.2372,0.0153,0.1650,0.0325,21064
+boxes,enabled,2,0.2349,0.0151,0.1634,0.0328,21270
+boxes,baseline,2,2.3721,2.0621,0.2455,0.0532,2108
+boxes,disabled,2,1.9744,1.7455,0.1785,0.0408,2532
+boxes,disabled,3,1.8131,1.5947,0.1720,0.0371,2758
+boxes,enabled,3,0.2383,0.0154,0.1660,0.0329,20970
+boxes,baseline,3,1.7553,1.5447,0.1680,0.0342,2849
+spheres,baseline,1,4.8844,0.5149,0.1441,4.1086,613
+spheres,disabled,1,4.8128,0.5103,0.1370,4.0358,622
+spheres,enabled,1,5.1612,0.5255,0.1383,4.0613,579
+spheres,enabled,2,5.1632,0.5241,0.1402,4.0589,580
+spheres,baseline,2,4.8852,0.5111,0.1502,4.1070,612
+spheres,disabled,2,4.9021,0.5194,0.1442,4.1060,610
+spheres,disabled,3,4.8794,0.5231,0.1434,4.0809,613
+spheres,enabled,3,5.1665,0.5188,0.1434,4.0653,579
+spheres,baseline,3,4.8702,0.5132,0.1461,4.0938,614
