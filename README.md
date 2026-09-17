@@ -34,6 +34,8 @@ The headless benchmarks accept an optional backend after the sample count
 The uniform grid and persistent dynamic AABB tree are experimental; SAP remains
 the engine default. `phys_broadphase_compare` compares all three backends on
 static and moving AABB layouts, including tree maintenance and initial construction.
+For optimized, symbolized CPU sampling of moving spheres and settled box stacks,
+see [CPU sampling](docs/performance.md#cpu-sampling).
 
 ## Pipeline
 

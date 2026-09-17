@@ -1,0 +1,27 @@
+pid: 82133
+sample_seconds: 15
+sample_interval_ms: 1
+PROFILE_READY scene=boxes dynamic_bodies=512 static_bodies=1 warmup_steps=240 max_linear_speed=1.31501e-08 max_angular_speed=1.41104e-08 contacts=512 contact_points=2048
+scene: boxes
+steps: 6864
+batches: 1
+wall_seconds: 20.0009
+mean_step_ms: 2.9137
+mean_broadphase_ms: 0.0348
+mean_tree_maintenance_ms: 0.0055
+mean_tree_query_ms: 0.0237
+mean_narrowphase_ms: 0.1709
+mean_solver_ms: 2.6992
+mean_integrate_velocity_ms: 0.0008
+mean_integrate_pose_ms: 0.0019
+mean_contacts: 512.0000
+min_contacts: 512
+max_contacts: 512
+reinsertions: 0
+final_max_linear_speed: 0.0000
+final_max_angular_speed: 0.0000
+
+Sampler output:
+Sampling process 82133 for 15 seconds with 1 millisecond of run time between samples
+Sampling completed, processing symbols...
+Sample analysis of process 82133 written to file /Users/bkuang/dev/phys-engine/profiling-results/cpu-sampling/cpu-tree-boxes.sample.txt

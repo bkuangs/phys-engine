@@ -1,6 +1,6 @@
 # Performance history
 
-Measurements from September 16, 2026, on an Apple M2 running macOS. The main
+Measurements from September 16-17, 2026, on an Apple M2 running macOS. The main
 algorithmic gain so far is replacing all-pairs broadphase with single-threaded,
 single-axis sweep-and-prune (SAP). At 10,000 bodies, the recorded Release mean
 step time fell from **197.83 ms to 13.40 ms**, approximately **14.76x faster**.
@@ -519,6 +519,118 @@ Raw results are retained in the
 [eager layout report](../benchmark-results-tree-area-cache-eager-layouts-release.txt),
 [guarded full-world report](../benchmark-results-tree-area-cache-release.txt), and
 [guarded layout report](../benchmark-results-tree-area-cache-layouts-release.txt).
+
+## CPU sampling
+
+The rejected-experiment findings were committed as `118e337` before sampling.
+The engine code is still the uncached tree implementation from `ddfc6a5`.
+Sampling was captured on September 17, 2026, using macOS `/usr/bin/sample`;
+Instruments' `xctrace` CLI was unavailable.
+
+The dedicated `phys_cpu_profile` runner uses `-O3 -DNDEBUG -g
+-fno-omit-frame-pointer` and a dSYM bundle. It does not link the benchmark
+allocation-counting override or record per-step timing vectors. The original
+sphere factory is shared with the existing benchmarks rather than duplicated.
+No engine algorithms were changed for profiling.
+
+### Workloads and capture protocol
+
+The launcher samples only the PIDs it creates, sequentially. Each capture
+requests 15 seconds at a 1 ms interval while the driver runs for 20 seconds.
+The raw call graphs contain 11,494 sphere-workload and 11,554 box-workload
+main-thread samples. The driver's scalar timing summaries cover its entire
+20-second run, not exactly the sampling interval.
+Simulation advances at a fixed 1/120-second timestep in an unthrottled loop;
+the driver does not sleep to enforce real-time pacing.
+
+| Workload | Setup | Behavior during capture |
+| --- | --- | --- |
+| Moving spheres | 10,000 spheres, seed 42, 120 Hz | Repeat fresh 25-step batches so long profiling runs do not turn into a different long-fall workload. Tree startup remains in each batch. |
+| Settled box stacks | 512 dynamic unit boxes in 256 two-high stacks, one static floor, 120 Hz | Warm up before sampling, then continuously step the same world. |
+
+The box scene settled after 240 warmup steps. Its initial maximum linear and
+angular speeds were about 1.3e-8 and 1.4e-8; it had 512 manifolds and 2,048
+contact points. The measured run retained exactly 512 manifolds throughout,
+performed zero tree reinsertions, and remained below the velocity thresholds.
+An initial eight-high fixture did not settle under the existing solver settings
+and was excluded; no solver tuning was used to force a settled profile.
+
+Raw samples and driver logs:
+
+- [Sphere call graph](../profiling-results/cpu-sampling/cpu-tree-spheres.sample.txt)
+  and [run summary](../profiling-results/cpu-sampling/cpu-tree-spheres.run.txt).
+- [Box call graph](../profiling-results/cpu-sampling/cpu-tree-boxes.sample.txt)
+  and [run summary](../profiling-results/cpu-sampling/cpu-tree-boxes.run.txt).
+
+### What the samples show
+
+Percentages below use all main-thread samples as their denominator.
+Inclusive function shares count a stack only once, even when optimized
+symbolication repeats the same function name. Self samples exclude children.
+The warm-start row is a subset of the solver, not an additional stage.
+
+| Sample attribution | Moving spheres | Settled boxes |
+| --- | ---: | ---: |
+| Tree query and output ordering, inclusive | 61.7% | 0.9% |
+| Tree maintenance functions, inclusive | 16.0% | 0.2% |
+| Solver, inclusive | 15.9% | 92.5% |
+| Narrowphase, inclusive | 1.1% | 5.5% |
+| Warm-start cache scan, self samples at solver lines 230-232 | 6.9% | 38.9% |
+| Identified allocation/reclaim/memmove helper self samples | 0.3% | 0.1% |
+
+The timing summaries corroborate the different bottlenecks. Sphere steps
+averaged 5.3577 ms, with 3.1611 ms of tree traversal and 0.8553 ms of solving.
+Box steps averaged 2.9137 ms, with 2.6992 ms of solving and only 0.0237 ms of
+tree traversal. These are instrumented diagnostic runs, not a new A/B speedup
+claim or a comparison of equivalent workloads.
+
+The clearest next small optimization is **indexing the warm-start cache by
+ordered body pair**, retaining the existing local-anchor matching and solver
+processing order. The current implementation scans the entire previous cache
+for each contact point. Samples directly identify that loop as substantial work,
+especially for the 2,048-point resting-contact workload.
+
+**Sleeping/awake islands** are a separate, larger opportunity: the box scene
+keeps spending almost all its CPU time solving contacts despite negligible
+motion. Sleeping colliders must remain available to active-body collision
+queries and wake correctly.
+
+For the sphere workload, samples concentrate in the node-pair traversal loop
+and its child-stack paths. Optimized source-line attribution does not establish
+cache misses, branch mispredictions, or a specific SIMD opportunity; instruction
+and hardware-counter analysis would be needed to distinguish those causes.
+Named inverse-inertia samples also do not include all inlined matrix work, so
+their small standalone symbol count should not be treated as a complete cost.
+
+Allocation/copy helpers were not dominant in these captures. Buffer reuse can
+still improve predictability, but allocation counts alone do not justify making
+it the first throughput optimization. Some optimized helpers remain labeled
+`<deduplicated_symbol>`; all sample shares are statistical estimates.
+
+### Repeating the sampling run
+
+On macOS, with Python 3 and the command-line developer tools:
+
+```sh
+cmake -S . -B build/cpu-profile \
+  -DCMAKE_BUILD_TYPE=Release \
+  '-DCMAKE_CXX_FLAGS_RELEASE=-O3 -DNDEBUG -g -fno-omit-frame-pointer' \
+  -DPHYS_BUILD_SANDBOX=OFF \
+  -DPHYS_BUILD_BENCHMARKS=ON \
+  -DBUILD_TESTING=OFF
+cmake --build build/cpu-profile --target phys_cpu_profile -j 4
+dsymutil build/cpu-profile/phys_cpu_profile
+python3 benchmarks/sample_cpu.py \
+  build/cpu-profile/phys_cpu_profile \
+  profiling-results/next-cpu-run
+```
+
+Choose a fresh output directory; existing reports are not overwritten. The
+runner's `--wait` handshake lets setup/warmup finish before sampling starts,
+and the launcher waits for both child processes to exit or terminates its own
+children on failure. It does not sample unrelated processes.
+The driver can also run directly as `phys_cpu_profile spheres 20` or
+`phys_cpu_profile boxes 20`, without the sampler.
 
 ## Reproducing the Release workload
 
