@@ -832,6 +832,50 @@ Raw reports:
 Historical short sphere reports are retained and are not directly comparable
 to this new baseline.
 
+### Sustained mixed scene with sleeping enabled
+
+The sleeping feature and mixed-scene benchmark were committed as `b93adca`.
+A trailing `--sleep` selector now enables sleeping before warmup; without it,
+the scaling runner retains its always-active default.
+
+The [sleeping comparison](../benchmark-results-mixed-sleeping-comparison.txt)
+uses the same executable for fresh off/on runs with SAP and the tree. Every
+size runs 240 warmup and 1,200 measured steps on the same seeded mixed scene.
+Execution order was SAP off, SAP on, tree on, tree off. The source fingerprint
+was unchanged throughout all four sweeps.
+
+| Dynamic bodies | SAP off | SAP on | Tree off | Tree on | Mean bodies asleep |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 100 | 0.19 ms | 0.21 ms | 0.21 ms | 0.19 ms | 12.4% |
+| 500 | 1.15 ms | 1.05 ms | 1.20 ms | 1.18 ms | 12.2% |
+| 1,000 | 2.30 ms | 2.30 ms | 2.58 ms | 2.68 ms | 7.1% |
+| 2,500 | 6.25 ms | 6.18 ms | 6.83 ms | 6.80 ms | 6.4% |
+| 5,000 | 13.00 ms | 13.01 ms | 13.79 ms | 13.61 ms | 6.0% |
+| 10,000 | 27.06 ms | 27.43 ms | 30.83 ms | 34.32 ms | 5.3% |
+
+These are measured step means from one sustained sweep per mode/backend, not
+repeated-run medians. Both enabled backends had the same mean sleeping counts.
+All runs passed scene-health checks and accounted for every dynamic body as
+awake or sleeping.
+
+This does not reproduce the large gain from the fully settled box-only scene.
+At 10,000 bodies, an average of 9,474.30 bodies remained awake. SAP's solved
+manifolds fell only from 16,137.58 to 15,637.40, and solver time from 17.56 to
+17.21 ms. Most solving work remained, while sleeping added island bookkeeping.
+Collision geometry was deliberately retained, so narrowphase work did not vanish.
+
+The tree also did more traversal work with sleeping: its last-step node-pair
+visits increased from 689,361 to 1,130,707, with similar mean candidate counts.
+Query time rose from 8.1572 to 11.2061 ms. Sleeping changes trajectories and
+proxy-update history, so an unchanged body count does not imply an unchanged
+tree shape or traversal cost.
+
+Both backends still missed all 1,200 deadlines at 10,000 bodies. Sleeping is
+therefore workload-dependent: highly effective for settled independent islands,
+but not a general speedup when most of this mixed scene remains awake. No
+thresholds or iteration counts were tuned to manufacture a gain, and the default
+remains sleeping disabled. Small timing differences remain load-sensitive.
+
 ## Reproducing the Release workload
 
 Build the selected source revision in a separate directory to leave the
@@ -850,7 +894,7 @@ cmake --build build/release-bench --target phys_collision_bench -j 4
 The shared scaling CLI is:
 
 ```text
-[measured_steps=1200] [sap|grid|tree] [mixed|spheres] [warmup_steps=240]
+[measured_steps=1200] [sap|grid|tree] [mixed|spheres] [warmup_steps=240] [--sleep]
 ```
 
 Both scaling executables use these defaults. To compare backends, keep the
@@ -860,6 +904,8 @@ scene, warmup, and measured steps identical:
 ./build/release-bench/phys_collision_bench 1200 sap mixed 240
 ./build/release-bench/phys_collision_bench 1200 grid mixed 240
 ./build/release-bench/phys_collision_bench 1200 tree mixed 240
+./build/release-bench/phys_collision_bench 1200 sap mixed 240 --sleep
+./build/release-bench/phys_collision_bench 1200 tree mixed 240 --sleep
 ./build/release-bench/phys_collision_bench 1200 tree spheres 240
 cmake --build build/release-bench --target phys_broadphase_compare -j 4
 ./build/release-bench/phys_broadphase_compare 10
@@ -867,6 +913,8 @@ cmake --build build/release-bench --target phys_broadphase_compare -j 4
 
 `phys_broadphase_bench` shares the complete scaling runner with
 `phys_collision_bench`; it is not an isolated broadphase query benchmark.
+`phys_collision_bench --sleep` enables sleeping with the default scene and
+step counts. The flag must be last and is applied before warmup.
 `phys_broadphase_compare` remains the separate query-only comparison, and
 `phys_cpu_profile spheres` retains the original profiling workload.
 

@@ -35,11 +35,13 @@ The default headless scaling scene is a seeded 50/50 mix of spheres and boxes
 over one static floor. Every size runs 240 warmup steps and 1,200 measured steps
 at 120 Hz: two simulated seconds of warmup plus ten measured seconds.
 Body-count labels exclude the additional floor.
-The CLI is `[measured_steps] [sap|grid|tree] [mixed|spheres] [warmup_steps]`;
+The CLI is `[measured_steps] [sap|grid|tree] [mixed|spheres] [warmup_steps] [--sleep]`;
 counts are exact at every size, without adaptive caps. For example,
 `phys_collision_bench 1200 tree` uses the default mixed scene and warmup with
 the tree backend; `phys_collision_bench 10 tree spheres 0` explicitly selects
 a short, unwarmed sphere-only run.
+Sleeping remains disabled by default. Append `--sleep` to enable it before
+warmup, or run `phys_collision_bench --sleep` to use all other scaling defaults.
 The uniform grid and persistent dynamic AABB tree are experimental; SAP remains
 the engine default. `phys_broadphase_compare` compares all three backends on
 static and moving AABB layouts, including tree maintenance and initial construction.

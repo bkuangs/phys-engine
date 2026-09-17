@@ -19,6 +19,7 @@ struct ScalingOptions
     std::size_t warmupSteps = 240;
     BroadPhaseAlgorithm algorithm = BroadPhaseAlgorithm::SweepAndPrune;
     ScalingScene scene = ScalingScene::MixedFloor;
+    bool sleepingEnabled = false;
 };
 
 struct BenchmarkObject

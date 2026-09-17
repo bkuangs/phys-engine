@@ -90,6 +90,7 @@ namespace phys::bench
             throw std::invalid_argument("Unknown benchmark scene");
         PhysicsWorld &world = scene.world;
         world.broadPhaseAlgorithm = options.algorithm;
+        world.setSleepingEnabled(options.sleepingEnabled);
         double deadlineMs = 1000.0 / simulationHz;
         double warmupTotalMs = 0;
         double coldFirstStepMs = 0;
@@ -227,9 +228,14 @@ namespace phys::bench
     bool parseScalingOptions(int argc, char **argv, ScalingOptions &options)
     {
         options = {};
+        if (argc > 1 && std::string_view(argv[argc - 1]) == "--sleep")
+        {
+            options.sleepingEnabled = true;
+            --argc;
+        }
         if (argc > 5)
         {
-            std::cerr << "Usage: benchmark [measured_steps=1200] [sap|grid|tree] [mixed|spheres] [warmup_steps=240]\n";
+            std::cerr << "Usage: benchmark [measured_steps=1200] [sap|grid|tree] [mixed|spheres] [warmup_steps=240] [--sleep]\n";
             return false;
         }
         if (argc > 1 && !parseSteps(argv[1], "Measured steps", false, options.measuredSteps))
@@ -254,8 +260,9 @@ namespace phys::bench
     {
         if (argc == 2 && (std::string_view(argv[1]) == "--help" || std::string_view(argv[1]) == "-h"))
         {
-            std::cout << "Usage: benchmark [measured_steps=1200] [sap|grid|tree] [mixed|spheres] [warmup_steps=240]\n"
-                         "Step counts are exact for every size; body counts exclude the static floor.\n";
+            std::cout << "Usage: benchmark [measured_steps=1200] [sap|grid|tree] [mixed|spheres] [warmup_steps=240] [--sleep]\n"
+                         "Step counts are exact for every size; body counts exclude the static floor.\n"
+                         "Sleeping is disabled unless the trailing --sleep flag is supplied.\n";
             return 0;
         }
         ScalingOptions options;
@@ -266,7 +273,8 @@ namespace phys::bench
             for (int bodyCount : {100, 500, 1000, 2500, 5000, 10000})
             {
                 std::cerr << "Benchmarking " << bodyCount << " dynamic bodies: "
-                          << options.warmupSteps << " warmup + " << options.measuredSteps << " measured steps\n";
+                          << options.warmupSteps << " warmup + " << options.measuredSteps
+                          << " measured steps; sleeping " << (options.sleepingEnabled ? "enabled" : "disabled") << '\n';
                 runBenchmark(bodyCount, 120.0, 42, options).print(std::cout);
                 std::cout.flush();
             }

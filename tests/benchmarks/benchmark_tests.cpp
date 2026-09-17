@@ -23,12 +23,19 @@ bool testOptions()
     if (!parse({"benchmark"}, options)
         || options.measuredSteps != 1200 || options.warmupSteps != 240
         || options.scene != phys::bench::ScalingScene::MixedFloor
-        || options.algorithm != phys::BroadPhaseAlgorithm::SweepAndPrune)
+        || options.algorithm != phys::BroadPhaseAlgorithm::SweepAndPrune || options.sleepingEnabled)
+        return false;
+    if (!parse({"benchmark", "--sleep"}, options) || !options.sleepingEnabled
+        || options.measuredSteps != 1200 || options.warmupSteps != 240)
+        return false;
+    if (!parse({"benchmark", "9", "tree", "mixed", "4", "--sleep"}, options)
+        || !options.sleepingEnabled || options.measuredSteps != 9 || options.warmupSteps != 4
+        || options.algorithm != phys::BroadPhaseAlgorithm::DynamicTree)
         return false;
     if (!parse({"benchmark", "7", "tree", "spheres", "0"}, options)
         || options.measuredSteps != 7 || options.warmupSteps != 0
         || options.scene != phys::bench::ScalingScene::Spheres
-        || options.algorithm != phys::BroadPhaseAlgorithm::DynamicTree)
+        || options.algorithm != phys::BroadPhaseAlgorithm::DynamicTree || options.sleepingEnabled)
         return false;
     return !parse({"benchmark", "0"}, options)
         && !parse({"benchmark", "-1"}, options)
@@ -37,6 +44,7 @@ bool testOptions()
         && !parse({"benchmark", "5", "invalid"}, options)
         && !parse({"benchmark", "5", "tree", "invalid"}, options)
         && !parse({"benchmark", "5", "tree", "mixed", "-1"}, options)
+        && !parse({"benchmark", "--sleep", "--sleep"}, options)
         && !parse({"benchmark", "5", "tree", "mixed", "0", "extra"}, options);
 }
 
@@ -105,6 +113,18 @@ bool testWarmupAndReport()
         || output.str().find("Measured steps:             120") == std::string::npos
         || output.str().find("no escaped/below-floor bodies") == std::string::npos)
         return false;
+    options.sleepingEnabled = true;
+    options.measuredSteps = 1;
+    report = phys::bench::runBenchmark(32, 120.0, 42, options);
+    if (!report.sleepingEnabled || report.meanSleepingBodies <= 0
+        || std::abs(report.meanAwakeBodies + report.meanSleepingBodies - 32) > 1e-6
+        || report.meanSolvedContacts > report.meanContacts)
+        return false;
+    std::ostringstream sleepingOutput;
+    report.print(sleepingOutput);
+    if (sleepingOutput.str().find("Sleeping:                   enabled") == std::string::npos)
+        return false;
+    options.sleepingEnabled = false;
     options.measuredSteps = 1;
     options.warmupSteps = 0;
     report = phys::bench::runBenchmark(5000, 120.0, 42, options);
