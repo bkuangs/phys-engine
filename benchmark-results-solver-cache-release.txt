@@ -1,0 +1,99 @@
+Solver invariant-cache comparison
+Date:                       2026-09-17
+Branch:                     experiment/sleeping-islands
+Baseline source:            0e0da25
+Body-only source:           0e0da25 + per-solve inverse mass/world-inertia table
+Combined source:            Body-only + per-contact normal/tangent angular responses
+Hardware/compiler:          Apple M2, macOS, Apple Clang 17.0.0.17000604, arm64
+Build:                      Release, -O3 -DNDEBUG -std=c++20 -arch arm64
+Unchanged:                  Eight iterations, contact/axis order, impulse clamping,
+                            restitution/bias rules, warm-start matching, sleeping thresholds
+Mixed workload:             Seed 42, balanced spheres/boxes and one floor
+Mixed protocol:             240 warmup + 1200 measured steps at fixed 1/120 second
+Mixed runner:               Existing runBenchmark(bodyCount, 120.0, 42, options);
+                            focused driver selects the recorded body count and backend
+Mixed allocation scope:     PhysicsWorld::step only, using the existing C++ allocation hook
+Box workload:               phys_cpu_profile boxes 3; 512 boxes in two-high stacks, one floor
+Box protocol:               240 warmup, three interleaved 3-second timed runs per variant
+Profile instrumentation:    No CPU sampler or allocation-counting hook
+Controls:                   phys_cpu_profile boxes 2 --sleep; phys_cpu_profile spheres 3;
+                            mixed 2500 tree --sleep (same 240/1200-step protocol)
+Timing interpretation:      Mixed rows are single-run means; box summary is median of per-run means
+Notes:                      Unpaced simulation on a shared machine; not a real-time guarantee.
+                            Body-only and combined executables/libraries were preserved separately.
+                            Combined caching changes floating-point rounding and long trajectories.
+                            Compare contact load/health below, not only body counts.
+
+Solver source SHA-256:
+original: 7bf9c4b0a0c2c85d0b3f2f25fe0dd0c59885f7173df53b271739921207eec9d4
+body:     ec04c0ca00bc535012ff0abfdc2906dd383bbe594dd8c9862a9bf2b0f986b980
+combined: 370d96096b976b538cf1d0e48f312842d6e1eaad2b3973d01207242d6f4574a7
+
+Execution order:
+2500 tree: original, body, combined
+10000 tree: combined, original, body
+10000 sap: body, combined, original
+boxes: original-1, body-1, combined-1, combined-2, original-2, body-2,
+       body-3, combined-3, original-3
+controls: original sleeping boxes / spheres / sleeping mixed; then combined in same order
+
+Mixed per-run measurements (all times ms; each row has 1200 samples)
+variant,bodies,backend,sleep,mean,solver,broadphase,narrowphase,p95,max,misses,allocations,mean_manifolds,mean_points,max_contact_penetration,final_floor_penetration,final_max_linear,final_max_angular,mean_sleeping
+original,2500,tree,off,6.81,4.33,1.47,0.96,7.12,15.29,16,20,4010.22,5934.81,0.0841,0.0055,2.3570,4.5320,0.00
+body,2500,tree,off,6.30,3.80,1.49,0.96,6.72,26.64,15,21,4010.22,5934.81,0.0841,0.0055,2.3570,4.5320,0.00
+combined,2500,tree,off,5.31,2.86,1.46,0.95,5.56,9.64,7,21,3986.20,5925.30,0.0837,0.0053,2.9925,4.6919,0.00
+combined,10000,tree,off,25.80,12.12,9.63,3.87,29.08,77.52,1200,23,16177.59,23810.79,0.0864,0.0148,1.9956,6.1206,0.00
+original,10000,tree,off,31.22,17.86,9.29,3.89,35.24,100.90,1200,22,16137.58,23740.00,0.0863,0.0055,2.2595,5.6097,0.00
+body,10000,tree,off,28.73,15.42,9.27,3.86,31.82,99.98,1200,23,16137.58,23740.00,0.0863,0.0055,2.2595,5.6097,0.00
+body,10000,sap,off,24.93,15.35,5.53,3.87,27.25,41.60,1200,23,16137.58,23740.00,0.0863,0.0055,2.2595,5.6097,0.00
+combined,10000,sap,off,21.73,12.09,5.57,3.89,24.85,38.85,1200,23,16177.59,23810.79,0.0864,0.0148,1.9956,6.1206,0.00
+original,10000,sap,off,27.27,17.63,5.56,3.90,30.34,72.66,1200,22,16137.58,23740.00,0.0863,0.0055,2.2595,5.6097,0.00
+original,2500,tree,on,6.77,4.13,1.47,0.95,7.15,19.93,22,21,4001.52,5932.04,0.0841,0.0053,2.6727,4.1187,159.75
+combined,2500,tree,on,5.40,2.76,1.48,0.95,5.64,11.71,7,22,4015.57,5949.60,0.0837,0.0052,3.5651,4.1189,140.76
+
+Unprofiled driver per-run measurements (times ms)
+variant,scene,sleep,run,mean,solver,broadphase,narrowphase,steps,mean_contacts,mean_solved,mean_sleeping
+original,boxes,off,1,1.7097,1.5069,0.0328,0.1611,1755,512,512,0
+body,boxes,off,1,1.5721,1.3668,0.0337,0.1625,1909,512,512,0
+combined,boxes,off,1,1.1924,0.9883,0.0329,0.1625,2516,512,512,0
+combined,boxes,off,2,1.2017,0.9954,0.0340,0.1636,2497,512,512,0
+original,boxes,off,2,1.7172,1.5139,0.0328,0.1617,1747,512,512,0
+body,boxes,off,2,1.5425,1.3412,0.0326,0.1601,1945,512,512,0
+body,boxes,off,3,1.5636,1.3569,0.0342,0.1636,1919,512,512,0
+combined,boxes,off,3,1.1846,0.9791,0.0332,0.1633,2533,512,512,0
+original,boxes,off,3,1.7814,1.5653,0.0368,0.1701,1684,512,512,0
+original,boxes,on,1,0.2459,0.0163,0.0338,0.1712,8129,512,0,512
+original,spheres,off,1,4.7762,0.5106,4.0067,0.1301,627,708.0510,708.0510,0
+combined,boxes,on,1,0.2326,0.0149,0.0322,0.1621,8594,512,0,512
+combined,spheres,off,1,4.6033,0.3332,4.0133,0.1285,651,704.8833,704.8833,0
+
+Box summary: median of three non-sleeping per-run means
+variant,step_ms,solver_ms
+original,1.7172,1.5139
+body,1.5636,1.3569
+combined,1.1924,0.9883
+
+Numerical diagnostic:
+128 seeded four-body contact systems, four solves each; rotated unequal-inertia
+boxes, shared bodies, two friction axes, warm starts and inter-solve mass changes.
+27108 finite velocity/impulse scalars compared against the preserved original:
+body-only: all exact
+combined: max absolute difference 1.34e-5;
+          max abs(new-old)/max(1,abs(old)) = 5.364e-6
+Chosen differential tolerance: 5e-5 scaled.
+This does not imply bitwise equality over long simulations.
+
+Health:
+All mixed runs passed existing finite-state, bounds and floor-escape checks.
+Final maximum floor penetration was <=0.02 in every recorded mixed run.
+Every box driver run retained exactly 512 manifolds and 2048 warmup contact points.
+Both sleeping-box controls had 512 min/mean sleeping bodies and zero solved manifolds.
+
+Temporary storage on arm64:
+PreparedBody: 48 bytes per world body slot, allocated only when a manifold is prepared
+PreparedContactPoint: 68 -> 140 bytes
+PreparedManifold (four-point capacity): 296 -> 584 bytes
+One extra allocation per active solve; no persistent RigidBody cache.
+
+Decision: retain both cache layers. Contact response factoring trades extra temporary
+storage and changed floating-point rounding for the larger additional solver gain.

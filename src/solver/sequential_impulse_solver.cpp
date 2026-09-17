@@ -84,12 +84,25 @@ namespace phys
 			return dot(delta, delta);
 		}
 
+		struct PreparedBody
+		{
+			RigidBody *body = nullptr;
+			float inverseMass = 0.0f;
+			Mat3 inverseInertiaWorld{};
+		};
+
 		struct PreparedContactPoint
 		{
 			Vec3 offsetA{};
 			Vec3 offsetB{};
 			Vec3 tangent1{};
 			Vec3 tangent2{};
+			Vec3 normalResponseA{};
+			Vec3 normalResponseB{};
+			Vec3 tangentResponseA1{};
+			Vec3 tangentResponseB1{};
+			Vec3 tangentResponseA2{};
+			Vec3 tangentResponseB2{};
 			float inverseEffectiveMass = 0.0f;
 			float inverseTangentMass1 = 0.0f;
 			float inverseTangentMass2 = 0.0f;
@@ -100,8 +113,8 @@ namespace phys
 		struct PreparedManifold
 		{
 			ContactManifold *manifold = nullptr;
-			RigidBody *bodyA = nullptr;
-			RigidBody *bodyB = nullptr;
+			PreparedBody *bodyA = nullptr;
+			PreparedBody *bodyB = nullptr;
 			std::array<PreparedContactPoint, 4> points{};
 		};
 
@@ -139,6 +152,36 @@ namespace phys
 		//     read current velocity
 		//     calculate error relative to fixed target
 		//     apply impulse immediately
+		std::vector<PreparedBody> preparedBodies;
+		auto prepareBody = [&](RigidBody *body, uint32_t index) -> PreparedBody * {
+			// Allocate only when a manifold is solved; storage stays fixed for this call.
+			if (preparedBodies.empty())
+				preparedBodies.resize(world.slots.size());
+			PreparedBody &prepared = preparedBodies[index];
+			if (!prepared.body)
+			{
+				prepared.body = body;
+				prepared.inverseMass = body->getInverseMass();
+				prepared.inverseInertiaWorld = body->getInverseInertiaWorld();
+			}
+			return &prepared;
+		};
+		auto applyCachedImpulse = [](const PreparedBody &prepared, const Vec3 &impulse, const Vec3 &offset) {
+			RigidBody *body = prepared.body;
+			if (body->isStatic)
+				return;
+			body->linearVelocity += impulse * prepared.inverseMass;
+			body->angularVelocity += prepared.inverseInertiaWorld * Math3d::cross(offset, impulse);
+		};
+		auto applyAxisImpulse = [](const PreparedBody &prepared, const Vec3 &impulse,
+								   const Vec3 &angularResponse, float magnitude) {
+			RigidBody *body = prepared.body;
+			if (body->isStatic)
+				return;
+			body->linearVelocity += impulse * prepared.inverseMass;
+			body->angularVelocity += angularResponse * magnitude;
+		};
+
 		std::vector<PreparedManifold> preparedContacts;
 		preparedContacts.reserve(contacts.size());
 		for (ContactManifold &manifold : contacts)
@@ -154,8 +197,8 @@ namespace phys
 
 			PreparedManifold prepared;
 			prepared.manifold = &manifold;
-			prepared.bodyA = bodyA;
-			prepared.bodyB = bodyB;
+			prepared.bodyA = prepareBody(bodyA, manifold.bodyA.index);
+			prepared.bodyB = prepareBody(bodyB, manifold.bodyB.index);
 
 			for (uint32_t index = 0; index < manifold.pointCount; ++index)
 			{
@@ -189,20 +232,26 @@ namespace phys
 					preparedPoint.offsetA, manifold.normal);
 				Vec3 angularJacobianB = Math3d::cross(
 					preparedPoint.offsetB, manifold.normal);
-				preparedPoint.inverseEffectiveMass = bodyA->getInverseMass() + bodyB->getInverseMass() + dot(angularJacobianA, bodyA->getInverseInertiaWorld() * angularJacobianA) + dot(angularJacobianB, bodyB->getInverseInertiaWorld() * angularJacobianB);
+				preparedPoint.normalResponseA = prepared.bodyA->inverseInertiaWorld * angularJacobianA;
+				preparedPoint.normalResponseB = prepared.bodyB->inverseInertiaWorld * angularJacobianB;
+				preparedPoint.inverseEffectiveMass = prepared.bodyA->inverseMass + prepared.bodyB->inverseMass + dot(angularJacobianA, preparedPoint.normalResponseA) + dot(angularJacobianB, preparedPoint.normalResponseB);
 
 				// Tangent angular Jacobians: Rotation can make the contact point slide sideways even if the center of mass has zero sideways velocity.
 				Vec3 tangentAngularJacobianA = Math3d::cross(
 					preparedPoint.offsetA, preparedPoint.tangent1);
 				Vec3 tangentAngularJacobianB = Math3d::cross(
 					preparedPoint.offsetB, preparedPoint.tangent1);
-				preparedPoint.inverseTangentMass1 = bodyA->getInverseMass() + bodyB->getInverseMass() + dot(tangentAngularJacobianA, bodyA->getInverseInertiaWorld() * tangentAngularJacobianA) + dot(tangentAngularJacobianB, bodyB->getInverseInertiaWorld() * tangentAngularJacobianB);
+				preparedPoint.tangentResponseA1 = prepared.bodyA->inverseInertiaWorld * tangentAngularJacobianA;
+				preparedPoint.tangentResponseB1 = prepared.bodyB->inverseInertiaWorld * tangentAngularJacobianB;
+				preparedPoint.inverseTangentMass1 = prepared.bodyA->inverseMass + prepared.bodyB->inverseMass + dot(tangentAngularJacobianA, preparedPoint.tangentResponseA1) + dot(tangentAngularJacobianB, preparedPoint.tangentResponseB1);
 
 				tangentAngularJacobianA = Math3d::cross(
 					preparedPoint.offsetA, preparedPoint.tangent2);
 				tangentAngularJacobianB = Math3d::cross(
 					preparedPoint.offsetB, preparedPoint.tangent2);
-				preparedPoint.inverseTangentMass2 = bodyA->getInverseMass() + bodyB->getInverseMass() + dot(tangentAngularJacobianA, bodyA->getInverseInertiaWorld() * tangentAngularJacobianA) + dot(tangentAngularJacobianB, bodyB->getInverseInertiaWorld() * tangentAngularJacobianB);
+				preparedPoint.tangentResponseA2 = prepared.bodyA->inverseInertiaWorld * tangentAngularJacobianA;
+				preparedPoint.tangentResponseB2 = prepared.bodyB->inverseInertiaWorld * tangentAngularJacobianB;
+				preparedPoint.inverseTangentMass2 = prepared.bodyA->inverseMass + prepared.bodyB->inverseMass + dot(tangentAngularJacobianA, preparedPoint.tangentResponseA2) + dot(tangentAngularJacobianB, preparedPoint.tangentResponseB2);
 				if (preparedPoint.inverseEffectiveMass <= 0.0f)
 					continue;
 
@@ -228,8 +277,6 @@ namespace phys
 		for (PreparedManifold &prepared : preparedContacts)
 		{
 			ContactManifold &manifold = *prepared.manifold;
-			RigidBody *bodyA = prepared.bodyA;
-			RigidBody *bodyB = prepared.bodyB;
 			const auto cachedRange = std::equal_range(
 				world.cachedContacts.begin(), world.cachedContacts.end(), manifold, cachePairLess);
 			for (uint32_t index = 0; index < manifold.pointCount; ++index)
@@ -252,8 +299,8 @@ namespace phys
 					point.tangentImpulse2 = Math3d::clamp(
 						cached.tangentImpulse2, -tangentLimit, tangentLimit);
 					Vec3 warmImpulse = manifold.normal * point.normalImpulse + preparedPoint.tangent1 * point.tangentImpulse1 + preparedPoint.tangent2 * point.tangentImpulse2;
-					bodyA->applyImpulseWithoutWaking(-warmImpulse, preparedPoint.offsetA);
-					bodyB->applyImpulseWithoutWaking(warmImpulse, preparedPoint.offsetB);
+					applyCachedImpulse(*prepared.bodyA, -warmImpulse, preparedPoint.offsetA);
+					applyCachedImpulse(*prepared.bodyB, warmImpulse, preparedPoint.offsetB);
 					break;
 				}
 			}
@@ -264,8 +311,8 @@ namespace phys
 			for (PreparedManifold &prepared : preparedContacts)
 			{
 				ContactManifold &manifold = *prepared.manifold;
-				RigidBody *bodyA = prepared.bodyA;
-				RigidBody *bodyB = prepared.bodyB;
+				RigidBody *bodyA = prepared.bodyA->body;
+				RigidBody *bodyB = prepared.bodyB->body;
 
 				// Loop through each contact point
 				for (uint32_t index = 0; index < manifold.pointCount; ++index)
@@ -295,8 +342,8 @@ namespace phys
 					float appliedImpulse = point.normalImpulse - previousImpulse;
 					Vec3 impulse = manifold.normal * appliedImpulse;
 
-					bodyA->applyImpulseWithoutWaking(-impulse, offsetA);
-					bodyB->applyImpulseWithoutWaking(impulse, offsetB);
+					applyAxisImpulse(*prepared.bodyA, -impulse, preparedPoint.normalResponseA, -appliedImpulse);
+					applyAxisImpulse(*prepared.bodyB, impulse, preparedPoint.normalResponseB, appliedImpulse);
 
 					if (preparedPoint.inverseTangentMass1 <= 0.0f || preparedPoint.inverseTangentMass2 <= 0.0f)
 						continue;
@@ -317,8 +364,8 @@ namespace phys
 						-tangentLimit, tangentLimit);
 					float appliedTangentImpulse1 = point.tangentImpulse1 - previousTangentImpulse1;
 					Vec3 tangentImpulse = preparedPoint.tangent1 * appliedTangentImpulse1;
-					bodyA->applyImpulseWithoutWaking(-tangentImpulse, offsetA);
-					bodyB->applyImpulseWithoutWaking(tangentImpulse, offsetB);
+					applyAxisImpulse(*prepared.bodyA, -tangentImpulse, preparedPoint.tangentResponseA1, -appliedTangentImpulse1);
+					applyAxisImpulse(*prepared.bodyB, tangentImpulse, preparedPoint.tangentResponseB1, appliedTangentImpulse1);
 
 					velocityA = bodyA->getLinearVelocity() + Math3d::cross(bodyA->getAngularVelocity(), offsetA);
 					velocityB = bodyB->getLinearVelocity() + Math3d::cross(bodyB->getAngularVelocity(), offsetB);
@@ -332,8 +379,8 @@ namespace phys
 						-tangentLimit, tangentLimit);
 					float appliedTangentImpulse2 = point.tangentImpulse2 - previousTangentImpulse2;
 					tangentImpulse = preparedPoint.tangent2 * appliedTangentImpulse2;
-					bodyA->applyImpulseWithoutWaking(-tangentImpulse, offsetA);
-					bodyB->applyImpulseWithoutWaking(tangentImpulse, offsetB);
+					applyAxisImpulse(*prepared.bodyA, -tangentImpulse, preparedPoint.tangentResponseA2, -appliedTangentImpulse2);
+					applyAxisImpulse(*prepared.bodyB, tangentImpulse, preparedPoint.tangentResponseB2, appliedTangentImpulse2);
 				}
 			}
 		}

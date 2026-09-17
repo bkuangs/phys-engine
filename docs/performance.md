@@ -876,6 +876,99 @@ but not a general speedup when most of this mixed scene remains awake. No
 thresholds or iteration counts were tuned to manufacture a gain, and the default
 remains sleeping disabled. Small timing differences remain load-sensitive.
 
+## Caching solver invariants
+
+The next optimization caches inverse mass and world-space inverse inertia once
+per participating body per `solve()` call. A second layer caches each contact's
+angular response to a unit normal or friction-axis impulse. Iterations scale
+these responses instead of repeating cross products and matrix-vector products.
+This is automatic, single-threaded preparation, not a persistent cache or SIMD
+rewrite. The eight iterations, contact/axis order, clamping, restitution,
+warm-start matching, and sleeping thresholds are unchanged.
+
+The [comparison report](../benchmark-results-solver-cache-release.txt) separates
+the original solver at `0e0da25`, body-only caching, and the retained combined
+body/contact-response cache. All use the same Release flags and workload code.
+
+### Full-step results
+
+The mixed-scene rows are individual matched runs: 240 warmup plus 1,200 measured
+steps, seed 42, sleeping disabled. A focused driver calls the existing
+`runBenchmark()` for the selected sizes/backends. The box row is the median of
+three interleaved three-second runs after 240 warmup steps, also with sleeping
+disabled. All values are milliseconds:
+
+| Workload | Original step | Body-only cache | Body + contact cache | Step-time reduction |
+| --- | ---: | ---: | ---: | ---: |
+| 2,500 mixed, tree | 6.81 | 6.30 | 5.31 | 22.0% |
+| 10,000 mixed, tree | 31.22 | 28.73 | 25.80 | 17.4% |
+| 10,000 mixed, SAP | 27.27 | 24.93 | 21.73 | 20.3% |
+| 512 settled boxes, tree | 1.7172 | 1.5636 | 1.1924 | 30.6% |
+
+At 2,500 mixed bodies, solver time falls from 4.33 to 2.86 ms. At 10,000 it falls
+from 17.86 to 12.12 ms with the tree, and from 17.63 to 12.09 ms with SAP.
+The settled-box solver falls from 1.5139 to 0.9883 ms (34.7% less time), while
+retaining 512 solved manifolds and 2,048 contact points.
+
+The 2,500-body tree run's p95 improves from 7.12 to 5.56 ms, but it still records
+7/1,200 steps over the 8.33 ms budget, versus 16/1,200 originally. All 10,000-body
+runs still miss every deadline. These are unpaced simulations on a shared
+machine, not a real-time guarantee or a multi-seed performance study.
+
+A sleeping-enabled 2,500-body tree comparison improves from 6.77 to 5.40 ms.
+The already fully sleeping 512-box control still solves zero contacts and does
+not allocate the new body table; its small timing difference is not attributed
+to this optimization. A short moving-sphere control changes from 4.7762 to
+4.6033 ms, with solver time from 0.5106 to 0.3332 ms, but broadphase remains
+dominant there.
+
+### Numerical behavior and memory tradeoff
+
+Body-only caching retains the original arithmetic ordering. A one-off
+differential probe used 128 seeded four-body contact systems, four successive
+solves each, including warm starts, rotated unequal-inertia boxes, two friction
+axes, and mass changes. All 27,108 recorded velocity/impulse scalars matched
+exactly for body-only caching. Combined contact-response caching produced a
+maximum absolute difference of 1.34e-5 and a maximum scaled difference of
+5.364e-6, using `abs(new - old) / max(1, abs(old))`.
+
+Factoring `I^-1 * cross(r, axis * impulse)` into a cached response times the
+impulse changes floating-point rounding. Those small local differences can
+accumulate into different long trajectories and sleep decisions. At 10,000
+mixed bodies, mean manifolds change from 16,137.58 to 16,177.59 and contact
+points from 23,740.00 to 23,810.79. Final maximum floor penetration changes
+from 0.0055 to 0.0148; maximum contact penetration over the measured interval
+changes from 0.0863 to 0.0864. All measured cases remain finite and within the
+floor, with final floor penetration below 0.02. No tolerances, iteration counts,
+or sleep thresholds were relaxed to obtain the gain.
+
+The solver regression compares uncached public impulse math with the prepared
+solver across orientation, mass, static-state, and body-generation changes.
+Existing friction, restitution, stacking, warm-start identity, backend-equivalence,
+and sleep/wake regressions also remain covered.
+
+On this arm64 build, the temporary body table costs 48 bytes per world body slot
+and one additional allocation on a solve with prepared manifolds. Prepared
+contact-point storage grows from 68 to 140 bytes, and the four-point prepared
+manifold from 296 to 584 bytes. This is an arithmetic-for-memory tradeoff, not
+an allocation optimization. The table is discarded each solve, avoiding stale
+pose/mass data and additional public-body cache invalidation machinery.
+
+Reproduce with the standard runners, comparing against `0e0da25` in a separate
+build:
+
+```sh
+cmake --build build/release-bench --target phys_collision_bench phys_cpu_profile -j 4
+./build/release-bench/phys_collision_bench 1200 tree mixed 240
+./build/release-bench/phys_collision_bench 1200 sap mixed 240
+./build/release-bench/phys_collision_bench 1200 tree mixed 240 --sleep
+./build/release-bench/phys_cpu_profile boxes 3
+```
+
+**Both cache layers are retained.** The body-only layer is simpler and numerically
+identical in the differential probe; the contact-response layer gives the larger
+additional reduction while preserving the solver equations and processing order.
+
 ## Reproducing the Release workload
 
 Build the selected source revision in a separate directory to leave the

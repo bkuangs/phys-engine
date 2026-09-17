@@ -16,6 +16,11 @@ namespace
         return std::abs(actual - expected) <= tolerance;
     }
 
+    bool near(phys::Vec3 actual, phys::Vec3 expected)
+    {
+        return near(actual.x, expected.x) && near(actual.y, expected.y) && near(actual.z, expected.z);
+    }
+
     bool testOffCenterContactProducesAngularVelocity()
     {
         phys::RigidBody staticBody;
@@ -354,6 +359,100 @@ namespace
         return true;
     }
 
+    bool testPreparedBodyDataRefreshedBetweenSolves()
+    {
+        phys::RigidBody initialA, initialB;
+        std::string error;
+        if (!phys::RigidBody::createBox(2, 1, 3, {}, 1, false, 0, 0, initialA, error)
+            || !phys::RigidBody::createBox(1, 3, 2, {}, 2, false, 0, 0, initialB, error))
+        {
+            std::cerr << "prepared-body test setup failed: " << error << '\n';
+            return false;
+        }
+        phys::PhysicsWorld world;
+        auto handleA = world.addBody(initialA);
+        auto handleB = world.addBody(initialB);
+        auto staleB = handleB;
+        for (int phase = 0; phase < 5; ++phase)
+        {
+            std::vector<phys::ContactManifold> empty;
+            phys::SequentialImpulseSolver::solve(empty, world, 1.0f / 120.0f);
+            if (phase == 3)
+            {
+                world.removeBody(handleB);
+                handleB = world.addBody(initialA);
+                if (handleB.index != staleB.index || handleB.generation == staleB.generation)
+                {
+                    std::cerr << "prepared-body test did not reuse its body slot\n";
+                    return false;
+                }
+            }
+            auto *a = world.getBody(handleA);
+            auto *b = world.getBody(handleB);
+            a->isStatic = phase == 2;
+            b->mass += 0.75f * phase;
+            a->setAngularVelocity({0.3f, 0.7f, -0.2f});
+            b->setAngularVelocity({-0.6f, 0.2f, 0.4f});
+            a->integrateRotation(0.4f);
+            b->integrateRotation(0.7f);
+            a->setLinearVelocity({0.5f, 2, -0.25f});
+            b->setLinearVelocity({-0.2f, -3, 0.4f});
+
+            phys::ContactManifold contact{};
+            contact.bodyA = handleA;
+            contact.bodyB = handleB;
+            contact.normal = phys::Math3d::normalize({0.2f, 1, -0.3f});
+            contact.pointCount = 1;
+            contact.points[0].localAnchorA = {0.4f, 0.2f, -0.3f};
+            contact.points[0].localAnchorB = {-0.2f, -0.4f, 0.5f};
+
+            auto expectedA = *a;
+            auto expectedB = *b;
+            auto offsetA = a->getRotation().rotate(contact.points[0].localAnchorA);
+            auto offsetB = b->getRotation().rotate(contact.points[0].localAnchorB);
+            auto jacobianA = phys::Math3d::cross(offsetA, contact.normal);
+            auto jacobianB = phys::Math3d::cross(offsetB, contact.normal);
+            float accumulatedImpulse = 0;
+            // Single frictionless constraint, evaluated with the uncached public body math.
+            for (int iteration = 0; iteration < 8; ++iteration)
+            {
+                float denominator = expectedA.getInverseMass() + expectedB.getInverseMass()
+                    + phys::Math3d::dot(jacobianA, expectedA.getInverseInertiaWorld() * jacobianA)
+                    + phys::Math3d::dot(jacobianB, expectedB.getInverseInertiaWorld() * jacobianB);
+                auto velocityA = expectedA.getLinearVelocity()
+                    + phys::Math3d::cross(expectedA.getAngularVelocity(), offsetA);
+                auto velocityB = expectedB.getLinearVelocity()
+                    + phys::Math3d::cross(expectedB.getAngularVelocity(), offsetB);
+                float nextImpulse = std::max(0.0f, accumulatedImpulse
+                    - phys::Math3d::dot(velocityB - velocityA, contact.normal) / denominator);
+                auto impulse = contact.normal * (nextImpulse - accumulatedImpulse);
+                expectedA.applyImpulse(-impulse, offsetA);
+                expectedB.applyImpulse(impulse, offsetB);
+                accumulatedImpulse = nextImpulse;
+            }
+            std::vector<phys::ContactManifold> contacts;
+            if (phase >= 3)
+            {
+                auto staleContact = contact;
+                staleContact.bodyB = staleB;
+                contacts.push_back(staleContact);
+            }
+            contacts.push_back(contact);
+            phys::SequentialImpulseSolver::solve(contacts, world, 1.0f / 120.0f);
+            if (!near(a->getLinearVelocity(), expectedA.getLinearVelocity())
+                || !near(a->getAngularVelocity(), expectedA.getAngularVelocity())
+                || !near(b->getLinearVelocity(), expectedB.getLinearVelocity())
+                || !near(b->getAngularVelocity(), expectedB.getAngularVelocity())
+                || !near(contacts.back().points[0].normalImpulse, accumulatedImpulse)
+                || world.lastStepStats().solvedContactCount != 1)
+            {
+                std::cerr << "prepared mass/inertia or angular response changed in phase " << phase << '\n';
+                return false;
+            }
+        }
+        return true;
+    }
+
 }
 
 int main()
@@ -362,6 +461,7 @@ int main()
         && testFrictionConstrainsTangentialVelocity() && testWorldCombinesMaterialFriction()
         && testBoxLandsOnStaticFloor()
         && testWarmStartPairIdentityAndStableMatching()
+        && testPreparedBodyDataRefreshedBetweenSolves()
         && testTiltedBoxSettlesFlat(1.0f / 60.0f, 0.3f, {0.0f, 0.0f, 1.0f})
         && testTiltedBoxSettlesFlat(1.0f / 120.0f, -0.6f, {1.0f, 0.0f, 0.0f})
         && testTiltedBoxSettlesFlat(1.0f / 60.0f, 0.5f,

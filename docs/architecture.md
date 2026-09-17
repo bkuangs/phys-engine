@@ -72,6 +72,31 @@ debug drawing; skipped manifolds apply no impulses that step. It does not add
 parallel solving, CCD, or a sleeping-contact geometry cache. Disabling sleeping
 wakes every body immediately and bypasses island/snapshot processing.
 
+### Solver preparation
+
+The sequential impulse solver caches inverse mass and world-space inverse inertia
+once per participating body for each `solve()` call. Validated body handles index
+a temporary, slot-indexed table shared by all of that body's manifolds. The table
+is allocated only when a manifold is prepared for solving; it is not a persistent
+body cache, so pose/mass/static-state changes and slot reuse require no separate
+invalidation protocol.
+
+For each contact's normal and two friction axes, preparation also stores the
+angular response `inverseInertiaWorld * cross(offset, axis)` for both bodies.
+Iterations multiply that response by the current impulse increment instead of
+repeating a cross product and matrix-vector multiply. Orientations and offsets
+remain fixed during the velocity solve, while velocities are still read and
+updated immediately after each constraint.
+
+The eight-iteration budget, normal/first-tangent/second-tangent order, impulse
+clamping, restitution/bias rules, and warm-start matching are unchanged.
+Warm-starting still applies its combined impulse using the cached inertia tensor.
+Factoring scalar impulse magnitudes out of the angular math changes floating-point
+rounding, so long trajectories are not promised to remain bit-for-bit identical.
+The tradeoff is additional temporary prepared-state storage in exchange for less
+arithmetic in the repeated solve loop; see
+[measurements](performance.md#caching-solver-invariants).
+
 ## Hot Path
 
 Efficient, real-time coding principles are a major point of interest and learning here.
