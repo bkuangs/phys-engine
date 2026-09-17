@@ -17,21 +17,22 @@ must not be treated as before/after optimization comparisons.
 
 ## Comparable checkpoints
 
-| Checkpoint | Source | Raw report |
-| --- | --- | --- |
-| Debug, all-pairs broadphase | `fd8f5a1` | [Debug baseline](../benchmark-results-current.txt) |
-| Release, all-pairs broadphase | `fd8f5a1` | [Release baseline](../benchmark-results-release.txt) |
-| Release, X-axis SAP | `9b9bc30` | [SAP results](../benchmark-results-sap-release.txt) |
-| Release, contiguous-record SAP | `9b9bc30` + layout patch (uncommitted when measured) | [Layout comparison](../benchmark-results-contiguous-release.txt) |
+| Checkpoint | Source |
+| --- | --- |
+| Debug, all-pairs broadphase | `fd8f5a1` |
+| Release, all-pairs broadphase | `fd8f5a1` |
+| Release, X-axis SAP | `9b9bc30` |
+| Release, contiguous-record SAP | `9b9bc30` + layout patch (uncommitted when measured) |
 
 The baseline reports were committed in `0455cd0`. The SAP report was captured
 before its implementation was committed in `9b9bc30`, so its original header
 still describes the working tree as `0455cd0 + uncommitted single-axis SAP changes`.
-The raw reports are retained unchanged.
+The relevant measurements are summarized below; the superseded raw reports were
+removed during benchmark cleanup.
 
-The older [naive report](../benchmark-results-naive.txt) is historical context,
-not the denominator for these comparisons: it does not record build type,
-hardware, or source revision.
+An older naive run is historical context, not the denominator for these
+comparisons: it did not record build type, hardware, or source revision, so its
+raw output was removed.
 
 ## Workload and measurement
 
@@ -206,11 +207,10 @@ equivalence and world/solver regressions also passed in Debug and Release.
 There are still 20 reported allocations per step at 10,000 bodies; this is a
 layout optimization, not buffer reuse.
 
-The [comparison report](../benchmark-results-contiguous-release.txt) records
-the summary and all per-run measurements. It uses fresh indexed controls,
-rather than treating the earlier single-run 13.40 ms result as a controlled
-before measurement. These are still short runs on a shared machine, so the
-observed ratios should not be treated as universal speedups.
+The comparison used fresh indexed controls rather than treating the earlier
+single-run 13.40 ms result as a controlled before measurement. These are still
+short runs on a shared machine, so the observed ratios should not be treated as
+universal speedups.
 
 ## Broadphase phase profile
 
@@ -218,8 +218,7 @@ The next measurement adds phase-boundary timers and work counters without
 changing the collision algorithm. A control executable from `a6b5dd6` was
 preserved, then three control runs and three instrumented runs were interleaved
 using the same Release configuration, seed, and sample argument `10`.
-The [profile report](../benchmark-results-broadphase-profile-release.txt)
-contains all per-run timings and counts.
+The profile captured per-run timings and counts summarized below.
 
 At 10,000 bodies, the instrumented full-step median run mean was 9.04 ms and
 the broadphase median run mean was 7.97 ms. The detailed timings were:
@@ -272,9 +271,9 @@ large floors or extreme coordinates from causing unbounded cell expansion.
 See the [collision pipeline](collision_pipeline.md#experimental-uniform-grid)
 for the precise policy.
 
-The [full-world comparison](../benchmark-results-grid-release.txt) uses three
-interleaved runs per backend with the same seed, Release build, and argument
-`10`. These are medians of per-run mean step times:
+The full-world comparison uses three interleaved runs per backend with the same
+seed, Release build, and argument `10`. These are medians of per-run mean step
+times:
 
 | Bodies | Fresh SAP | Uniform grid | SAP time / grid time |
 | ---: | ---: | ---: | ---: |
@@ -298,10 +297,10 @@ also increased from 20 to 24 per step. Small scenes were slower with the grid.
 
 ### Other layouts
 
-The separate [layout comparison](../benchmark-results-grid-layouts-release.txt)
-times standalone broadphase queries on static AABBs, not full simulation steps.
-Ten queries per backend are interleaved for each layout, with exact ordered
-pair equality checked outside the timed region. At 10,000 AABBs:
+The separate layout comparison times standalone broadphase queries on static
+AABBs, not full simulation steps. Ten queries per backend are interleaved for
+each layout, with exact ordered pair equality checked outside the timed region.
+At 10,000 AABBs:
 
 | Layout | SAP query mean | Grid query mean |
 | --- | ---: | ---: |
