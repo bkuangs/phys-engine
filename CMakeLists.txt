@@ -58,15 +58,6 @@ if(PHYS_BUILD_SANDBOX)
 endif()
 
 if(PHYS_BUILD_BENCHMARKS)
-    add_executable(phys_broadphase_bench
-        benchmarks/broadphase_bench.cpp
-        benchmarks/bench_common.cpp
-        benchmarks/bench_scenes.cpp
-        benchmarks/alloc_counter.cpp
-    )
-    target_link_libraries(phys_broadphase_bench PRIVATE phys::phys)
-    set_target_properties(phys_broadphase_bench PROPERTIES CXX_EXTENSIONS OFF)
-
     add_executable(phys_collision_bench
         benchmarks/collision_bench.cpp
         benchmarks/bench_common.cpp

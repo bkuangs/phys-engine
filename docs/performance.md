@@ -712,7 +712,7 @@ broadphase/narrowphase and keep their contact geometry and warm-start cache.
 See [architecture](architecture.md#opt-in-sleeping-islands) for wake ordering
 and mutation handling.
 
-The [comparison report](../benchmark-results-sleeping-release.txt) records three
+The [comparison report](../benchmarks/results/sleeping-release.txt) records three
 interleaved runs for a preserved pre-change executable, the new executable with
 sleeping disabled, and that same executable with sleeping enabled. All use the
 Release flags `-O3 -DNDEBUG`, Apple M2, and the dynamic-tree backend. No CPU
@@ -778,9 +778,8 @@ health checks, sample recording, and reporting are outside those timings.
 The floor has a 32-unit margin around the spawn footprint. Its thickness is
 `min(1, 0.5 * BodyLimits::maxSize / floorArea)`, keeping its top at y=0 while
 respecting the engine's volume limit. An initial 16-unit margin was rejected
-when a rolling body left the floor in the 500-body case; that
-[incomplete run](../benchmark-results-mixed-initial-floor-failed.txt) is not a
-valid performance baseline.
+when a rolling body left the floor in the 500-body case; the incomplete run was
+removed because it was not a valid performance baseline.
 
 The benchmark checks tracked bodies after warmup and after measurement. Non-finite
 state, invalid bounds, or objects completely outside/below the floor fail the run
@@ -827,8 +826,8 @@ the raw reports. The longer sample count improves percentile usefulness but
 does not make this one scene representative of every simulation.
 
 Raw reports:
-[default SAP](../benchmark-results-mixed-sustained-sap-release.txt) and
-[explicit tree](../benchmark-results-mixed-sustained-tree-release.txt).
+[default SAP](../benchmarks/results/mixed-sustained-sap-release.txt) and
+[explicit tree](../benchmarks/results/mixed-sustained-tree-release.txt).
 Historical short sphere reports are retained and are not directly comparable
 to this new baseline.
 
@@ -838,7 +837,7 @@ The sleeping feature and mixed-scene benchmark were committed as `b93adca`.
 A trailing `--sleep` selector now enables sleeping before warmup; without it,
 the scaling runner retains its always-active default.
 
-The [sleeping comparison](../benchmark-results-mixed-sleeping-comparison.txt)
+The [sleeping comparison](../benchmarks/results/mixed-sleeping-comparison.txt)
 uses the same executable for fresh off/on runs with SAP and the tree. Every
 size runs 240 warmup and 1,200 measured steps on the same seeded mixed scene.
 Execution order was SAP off, SAP on, tree on, tree off. The source fingerprint
@@ -886,7 +885,7 @@ This is automatic, single-threaded preparation, not a persistent cache or SIMD
 rewrite. The eight iterations, contact/axis order, clamping, restitution,
 warm-start matching, and sleeping thresholds are unchanged.
 
-The [comparison report](../benchmark-results-solver-cache-release.txt) separates
+The [comparison report](../benchmarks/results/solver-cache-release.txt) separates
 the original solver at `0e0da25`, body-only caching, and the retained combined
 body/contact-response cache. All use the same Release flags and workload code.
 
@@ -982,7 +981,7 @@ six times per contact point per iteration. After rebuilding, the Release solver
 object contains no out-of-line cross-product symbol, and disassembly of the
 Release profiling executable contains no calls to it.
 
-The [comparison report](../benchmark-results-inline-cross-release.txt) uses a
+The [comparison report](../benchmarks/results/inline-cross-release.txt) uses a
 fresh preserved baseline from `331c3d3`, which already includes both solver
 cache layers. Mixed rows are matched individual runs with 240 warmup and 1,200
 measured steps. The box row is the median of three interleaved three-second
@@ -1032,8 +1031,8 @@ The shared scaling CLI is:
 [measured_steps=1200] [sap|grid|tree] [mixed|spheres] [warmup_steps=240] [--sleep]
 ```
 
-Both scaling executables use these defaults. To compare backends, keep the
-scene, warmup, and measured steps identical:
+The scaling executable uses these defaults. To compare backends, keep the scene,
+warmup, and measured steps identical:
 
 ```sh
 ./build/release-bench/phys_collision_bench 1200 sap mixed 240
@@ -1046,8 +1045,6 @@ cmake --build build/release-bench --target phys_broadphase_compare -j 4
 ./build/release-bench/phys_broadphase_compare 10
 ```
 
-`phys_broadphase_bench` shares the complete scaling runner with
-`phys_collision_bench`; it is not an isolated broadphase query benchmark.
 `phys_collision_bench --sleep` enables sleeping with the default scene and
 step counts. The flag must be last and is applied before warmup.
 `phys_broadphase_compare` remains the separate query-only comparison, and
