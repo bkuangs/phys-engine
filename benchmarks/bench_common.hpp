@@ -39,6 +39,15 @@ struct BenchmarkScene
 
 BenchmarkScene makeMixedField(int bodyCount, unsigned seed);
 
+struct TailStepSample
+{
+    std::size_t measuredStep = 0; // One-based index within the measured interval.
+    std::size_t allocations = 0;
+    std::size_t contactPoints = 0;
+    double unattributedMs = 0.0;
+    StepStats stats{};
+};
+
 struct BenchmarkReport
 {
     int bodyCount = 0;
@@ -55,6 +64,13 @@ struct BenchmarkReport
     double coldFirstStepMs = 0.0;
 
     DurationStats::Summary stepTime;
+    DurationStats::Summary integrateVelocityTime;
+    DurationStats::Summary broadPhaseTime;
+    DurationStats::Summary narrowPhaseTime;
+    DurationStats::Summary solverTime;
+    DurationStats::Summary integratePoseTime;
+    DurationStats::Summary unattributedTime;
+    TailStepSample slowestStep;
     double firstStepMs = 0.0;
     std::size_t deadlineMisses = 0;
 

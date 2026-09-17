@@ -105,9 +105,13 @@ namespace phys::bench
             checkScene(scene, "warmup");
 
         DurationStats stepStats;
+        DurationStats integrateVelocityStats;
         DurationStats broadPhaseStats;
         DurationStats narrowPhaseStats;
         DurationStats solverStats;
+        DurationStats integratePoseStats;
+        DurationStats unattributedStats;
+        TailStepSample slowestStep;
         double broadPhaseCollectTotalMs = 0.0;
         double broadPhaseFilterTotalMs = 0.0;
         BroadPhaseStats broadPhaseTotals{};
@@ -126,11 +130,13 @@ namespace phys::bench
 
         for (std::size_t i = 0; i < options.measuredSteps; ++i)
         {
+            std::size_t stepAllocations = 0;
             {
                 ScopedAllocCounter allocs;
                 world.step(dt);
-                totalAllocations += allocs.count();
+                stepAllocations = allocs.count();
             }
+            totalAllocations += stepAllocations;
             const StepStats &stats = world.lastStepStats();
             if (i == 0)
             {
@@ -140,9 +146,15 @@ namespace phys::bench
             }
 
             stepStats.record(stats.totalMs);
+            integrateVelocityStats.record(stats.integrateVelocityMs);
             broadPhaseStats.record(stats.broadPhaseMs);
             narrowPhaseStats.record(stats.narrowPhaseMs);
             solverStats.record(stats.solverMs);
+            integratePoseStats.record(stats.integratePoseMs);
+            double attributedMs = stats.integrateVelocityMs + stats.broadPhaseMs
+                + stats.narrowPhaseMs + stats.solverMs + stats.integratePoseMs;
+            double unattributedMs = std::max(stats.totalMs - attributedMs, 0.0);
+            unattributedStats.record(unattributedMs);
             broadPhaseCollectTotalMs += stats.broadPhaseCollectMs;
             broadPhaseFilterTotalMs += stats.broadPhaseFilterMs;
             broadPhaseTotals.recordBuildMs += stats.broadPhaseDetails.recordBuildMs;
@@ -161,11 +173,21 @@ namespace phys::bench
             totalSolvedContacts += stats.solvedContactCount;
             minContacts = std::min(minContacts, stats.contactCount);
             maxContacts = std::max(maxContacts, stats.contactCount);
+            std::size_t stepContactPoints = 0;
             for (const auto &contact : world.contacts())
             {
                 totalContactPoints += contact.pointCount;
+                stepContactPoints += contact.pointCount;
                 for (uint32_t point = 0; point < contact.pointCount; ++point)
                     maxPenetration = std::max(maxPenetration, contact.points[point].penetration);
+            }
+            if (slowestStep.measuredStep == 0 || stats.totalMs > slowestStep.stats.totalMs)
+            {
+                slowestStep.measuredStep = i + 1;
+                slowestStep.allocations = stepAllocations;
+                slowestStep.contactPoints = stepContactPoints;
+                slowestStep.unattributedMs = unattributedMs;
+                slowestStep.stats = stats;
             }
         }
         SceneHealth health;
@@ -189,6 +211,13 @@ namespace phys::bench
         report.floorSize = scene.floorSize;
         report.sleepingEnabled = world.isSleepingEnabled();
         report.stepTime = stepStats.summarize();
+        report.integrateVelocityTime = integrateVelocityStats.summarize();
+        report.broadPhaseTime = broadPhaseStats.summarize();
+        report.narrowPhaseTime = narrowPhaseStats.summarize();
+        report.solverTime = solverStats.summarize();
+        report.integratePoseTime = integratePoseStats.summarize();
+        report.unattributedTime = unattributedStats.summarize();
+        report.slowestStep = slowestStep;
         report.firstStepMs = firstStepMs;
         report.deadlineMisses = deadlineMisses;
         report.possiblePairs = lastStats.possiblePairs;
@@ -334,6 +363,54 @@ namespace phys::bench
         out << "    p95:                     " << stepTime.p95 << " ms\n";
         out << "    p99:                     " << stepTime.p99 << " ms\n";
         out << "    max:                     " << stepTime.max << " ms\n\n";
+
+        out << "Stage timing distribution (ms):\n"
+            << "                              mean       p95       p99       max\n";
+        auto printStage = [&](const char *label, const DurationStats::Summary &summary)
+        {
+            out << "    " << std::left << std::setw(22) << label << std::right
+                << std::setw(10) << summary.mean
+                << std::setw(10) << summary.p95
+                << std::setw(10) << summary.p99
+                << std::setw(10) << summary.max << "\n";
+        };
+        printStage("integrate velocity", integrateVelocityTime);
+        printStage("broadphase", broadPhaseTime);
+        printStage("narrowphase", narrowPhaseTime);
+        printStage("solver", solverTime);
+        printStage("integrate pose", integratePoseTime);
+        printStage("unattributed", unattributedTime);
+        out << "\n";
+
+        const StepStats &tail = slowestStep.stats;
+        out << "Slowest measured step (" << slowestStep.measuredStep << " of " << sampleCount << "):\n";
+        out << "    total:                   " << tail.totalMs << " ms\n";
+        out << "    integrate velocity:      " << tail.integrateVelocityMs << " ms\n";
+        out << "    broadphase:              " << tail.broadPhaseMs << " ms\n";
+        out << "    narrowphase:             " << tail.narrowPhaseMs << " ms\n";
+        out << "    solver:                  " << tail.solverMs << " ms\n";
+        out << "    integrate pose:          " << tail.integratePoseMs << " ms\n";
+        out << "    unattributed:            " << slowestStep.unattributedMs << " ms\n";
+        out << "    engine allocations:      " << slowestStep.allocations << "\n";
+        out << "    candidates/manifolds:    " << tail.candidatePairs << " / " << tail.contactCount << "\n";
+        out << "    contact points:          " << slowestStep.contactPoints << "\n";
+        out << "    solved manifolds:        " << tail.solvedContactCount << "\n";
+        out << "    awake/sleeping bodies:   " << tail.awakeBodyCount << " / " << tail.sleepingBodyCount << "\n";
+        if (tree)
+        {
+            out << "    tree node-pair visits:   " << tail.broadPhaseDetails.treeNodePairVisits << "\n";
+            out << "    tree leaf checks:        " << tail.broadPhaseDetails.treeLeafChecks << "\n";
+            out << "    tree reinsertions:       " << tail.broadPhaseDetails.treeReinsertions << "\n";
+        }
+        else if (grid)
+        {
+            out << "    grid comparisons:        " << tail.broadPhaseDetails.gridComparisons << "\n";
+            out << "    grid entries/overflow:   " << tail.broadPhaseDetails.gridEntries
+                << " / " << tail.broadPhaseDetails.gridOverflowAabbs << "\n";
+        }
+        else
+            out << "    X-window comparisons:    " << tail.broadPhaseDetails.xWindowComparisons << "\n";
+        out << "\n";
 
         out << "Deadline misses (>" << (1000.0 / simulationHz) << "ms):   "
             << deadlineMisses << " / " << sampleCount << "\n\n";

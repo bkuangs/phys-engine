@@ -103,6 +103,11 @@ bool testWarmupAndReport()
         || report.possiblePairs != 32 * 33 / 2
         || !(report.warmupTotalMs >= report.coldFirstStepMs)
         || !std::isfinite(report.stepTime.mean) || !std::isfinite(report.finalFloorPenetration)
+        || report.slowestStep.measuredStep == 0
+        || report.slowestStep.measuredStep > report.sampleCount
+        || report.slowestStep.stats.totalMs != report.stepTime.max
+        || !std::isfinite(report.solverTime.p99)
+        || !std::isfinite(report.unattributedTime.max)
         || report.meanContacts <= 0 || report.meanContactPoints < report.meanContacts
         || report.sleepingEnabled || report.meanAwakeBodies != 32 || report.meanSleepingBodies != 0)
         return false;
@@ -111,6 +116,9 @@ bool testWarmupAndReport()
     if (output.str().find("Dynamic bodies:             32") == std::string::npos
         || output.str().find("Warmup steps:               240") == std::string::npos
         || output.str().find("Measured steps:             120") == std::string::npos
+        || output.str().find("Stage timing distribution (ms):") == std::string::npos
+        || output.str().find("Slowest measured step (") == std::string::npos
+        || output.str().find("candidates/manifolds:") == std::string::npos
         || output.str().find("no escaped/below-floor bodies") == std::string::npos)
         return false;
     options.sleepingEnabled = true;
