@@ -31,6 +31,7 @@ if (auto *body = world.getBody(handle)) {
     bool sleeping = body->isSleeping();
     body->applyLinearImpulse({1, 0, 0});     // Automatically wakes the body.
 }
+```
 
 ## Pipeline
 
