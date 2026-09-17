@@ -2,6 +2,8 @@
 
 Writing a 3D rigid-body physics engine from scratch in C++.
 
+![phys-engine demo](phys-engine.gif)
+
 ## Bringup
 Run `raylib` renderer:
 ```sh
