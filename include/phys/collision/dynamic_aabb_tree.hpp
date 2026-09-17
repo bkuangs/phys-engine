@@ -1,9 +1,12 @@
 #pragma once
 #include <phys/collision/broadphase.hpp>
 #include <limits>
+#include <utility>
 #include <vector>
 
 namespace phys {
+
+class PhysicsWorld;
 
 class DynamicAabbTree
 {
@@ -58,6 +61,11 @@ private:
     ProxyId rotateLeft(ProxyId node);
     ProxyId rotateRight(ProxyId node);
     ProxyId balance(ProxyId node);
+    void findCandidatePairs(std::vector<BroadPhasePair>& pairs,
+        std::vector<std::pair<ProxyId, ProxyId>>& stack,
+        BroadPhaseStats* stats) const;
+
+    friend class PhysicsWorld;
 };
 
 }

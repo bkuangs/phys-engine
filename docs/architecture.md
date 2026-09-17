@@ -106,8 +106,8 @@ integration, broad phase, narrow phase, contact generation, and solving. Body
 and collider creation is usually a cold path, so it may favor simpler, clearer
 allocation and ownership. The step path should favor predictable work:
 
-- reserve body, pair, manifold, and contact buffers during initialization;
-- reuse storage and target zero allocations per step;
+- reuse world-local scratch storage at its observed high-water capacity;
+- target zero allocations after warmup for an unchanged workload;
 - avoid file I/O, logging, and unnecessary locking;
 - prefer contiguous iteration and explicit handling of inactive entries;
 - measure stage costs and allocation counts rather than assuming improvements.

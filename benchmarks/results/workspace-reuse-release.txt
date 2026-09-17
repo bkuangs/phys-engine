@@ -1,0 +1,55 @@
+Step Workspace Reuse - Release Comparison
+=========================================
+
+Date:                       2026-09-17
+Hardware:                   Apple M2, macOS arm64
+Compiler/build:             Apple Clang, Release (-O3 -DNDEBUG), C++20
+Control revision:           e9ffade
+Current source:             perf/reuse-step-workspaces working tree
+Command:                    phys_collision_bench 240 tree mixed 240
+Scene:                      Seeded mixed floor, sleeping disabled
+Protocol:                   240 warmup + 240 measured steps per body count
+Run order:                  control/current, current/control, control/current
+Statistic:                  Median of three per-run means
+
+Allocation accounting
+---------------------
+
+The control printed total_allocations / measured_steps using integer division.
+Current results print the floating-point mean, exact total, and maximum for any
+measured step. Current totals and maxima matched in all three runs.
+
+bodies,control_allocations_per_step_lower_bound,current_mean,current_total,current_max_step
+100,16,0.25,59,3
+500,18,0.44,105,2
+1000,19,0.61,146,2
+2500,21,0.89,213,2
+5000,22,1.21,291,2
+10000,23,1.46,351,2
+
+Timing
+------
+
+bodies,control_mean_ms,current_mean_ms
+100,0.12,0.13
+500,0.76,0.76
+1000,1.72,1.72
+2500,4.46,4.48
+5000,9.16,9.21
+10000,22.43,22.57
+
+Interpretation
+--------------
+
+Reuse removes at least 93.7%-98.4% of the control's reported allocation churn.
+The current mixed workload still grows its observed contact/pair high-water
+marks after warmup, producing sparse capacity allocations with a maximum of
+two per measured step except at 100 bodies (three).
+
+The timing distributions overlap. This comparison supports lower allocation
+churn and a lower allocation ceiling, not a measurable full-step latency gain.
+Candidate/contact workloads and final scene-health values match the control.
+
+An allocation regression separately uses unchanged workloads and requires zero
+allocations after warmup for SAP, grid, tree, copied/moved worlds, post-growth
+worlds, and a fully sleeping world.

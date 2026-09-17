@@ -1,13 +1,52 @@
 #include "bench_common.hpp"
+#include "alloc_counter.hpp"
 #include <phys/collision/broadphase.hpp>
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
+
+struct AllocationSummary
+{
+    std::size_t total = 0;
+    std::size_t maximum = 0;
+};
+
+AllocationSummary countStepAllocations(phys::PhysicsWorld& world, std::size_t steps)
+{
+    AllocationSummary result;
+    for (std::size_t step = 0; step < steps; ++step) {
+        phys::bench::ScopedAllocCounter allocations;
+        world.step(1.0f / 120.0f);
+        const std::size_t count = allocations.count();
+        result.total += count;
+        result.maximum = std::max(result.maximum, count);
+    }
+    return result;
+}
+
+phys::PhysicsWorld makeSteadyScene(phys::BroadPhaseAlgorithm algorithm)
+{
+    phys::PhysicsWorld world;
+    world.gravity = {};
+    world.broadPhaseAlgorithm = algorithm;
+    for (int index = 0; index < 4; ++index) {
+        phys::RigidBodyHandle body;
+        phys::ColliderHandle collider;
+        std::string error;
+        const float offset = static_cast<float>(index) * 0.05f;
+        if (!world.createBox(2.0f, 2.0f, 2.0f, {offset, 0.0f, 0.0f},
+                1.0f, true, 0.0f, 0.5f, body, collider, error))
+            throw std::runtime_error(error);
+    }
+    return world;
+}
 
 bool parse(std::vector<std::string> arguments, phys::bench::ScalingOptions& options)
 {
@@ -106,6 +145,8 @@ bool testWarmupAndReport()
         || report.slowestStep.measuredStep == 0
         || report.slowestStep.measuredStep > report.sampleCount
         || report.slowestStep.stats.totalMs != report.stepTime.max
+        || report.totalAllocations < report.maxAllocationsPerStep
+        || report.allocationsPerStep != static_cast<double>(report.totalAllocations) / report.sampleCount
         || !std::isfinite(report.solverTime.p99)
         || !std::isfinite(report.unattributedTime.max)
         || report.meanContacts <= 0 || report.meanContactPoints < report.meanContacts
@@ -118,6 +159,7 @@ bool testWarmupAndReport()
         || output.str().find("Measured steps:             120") == std::string::npos
         || output.str().find("Stage timing distribution (ms):") == std::string::npos
         || output.str().find("Slowest measured step (") == std::string::npos
+        || output.str().find("max / step:") == std::string::npos
         || output.str().find("candidates/manifolds:") == std::string::npos
         || output.str().find("no escaped/below-floor bodies") == std::string::npos)
         return false;
@@ -146,12 +188,95 @@ bool testWarmupAndReport()
         && report.sampleCount == 1 && report.broadPhaseDetails.treeProxyCount == 10;
 }
 
+bool testSteadyStateAllocations()
+{
+    for (phys::BroadPhaseAlgorithm algorithm : {
+             phys::BroadPhaseAlgorithm::SweepAndPrune,
+             phys::BroadPhaseAlgorithm::UniformGrid,
+             phys::BroadPhaseAlgorithm::DynamicTree}) {
+        auto world = makeSteadyScene(algorithm);
+        for (int step = 0; step < 3; ++step)
+            world.step(1.0f / 120.0f);
+        const AllocationSummary steady = countStepAllocations(world, 32);
+        if (steady.total != 0 || steady.maximum != 0) {
+            std::cerr << "steady allocation regression for algorithm "
+                      << static_cast<int>(algorithm) << ": "
+                      << steady.total << " total, " << steady.maximum << " max\n";
+            return false;
+        }
+
+        phys::PhysicsWorld copied = world;
+        for (int step = 0; step < 3; ++step)
+            copied.step(1.0f / 120.0f);
+        const AllocationSummary copiedSteady = countStepAllocations(copied, 8);
+        if (copiedSteady.total != 0 || copiedSteady.maximum != 0) {
+            std::cerr << "copied-world allocation regression for algorithm "
+                      << static_cast<int>(algorithm) << '\n';
+            return false;
+        }
+
+        phys::PhysicsWorld moved = std::move(world);
+        const AllocationSummary movedSteady = countStepAllocations(moved, 8);
+        if (movedSteady.total != 0 || movedSteady.maximum != 0) {
+            std::cerr << "moved-world allocation regression for algorithm "
+                      << static_cast<int>(algorithm) << '\n';
+            return false;
+        }
+
+        for (int index = 0; index < 8; ++index) {
+            phys::RigidBodyHandle body;
+            phys::ColliderHandle collider;
+            std::string error;
+            if (!moved.createBox(2.0f, 2.0f, 2.0f,
+                    {0.25f + static_cast<float>(index) * 0.05f, 0.0f, 0.0f},
+                    1.0f, true, 0.0f, 0.5f, body, collider, error))
+                throw std::runtime_error(error);
+        }
+        for (int step = 0; step < 3; ++step)
+            moved.step(1.0f / 120.0f);
+        const AllocationSummary grownSteady = countStepAllocations(moved, 8);
+        if (grownSteady.total != 0 || grownSteady.maximum != 0) {
+            std::cerr << "grown-world allocation regression for algorithm "
+                      << static_cast<int>(algorithm) << ": "
+                      << grownSteady.total << " total, " << grownSteady.maximum << " max\n";
+            return false;
+        }
+    }
+
+    phys::PhysicsWorld sleepingWorld;
+    sleepingWorld.gravity = {};
+    sleepingWorld.broadPhaseAlgorithm = phys::BroadPhaseAlgorithm::DynamicTree;
+    sleepingWorld.setSleepingEnabled(true);
+    for (int index = 0; index < 4; ++index) {
+        phys::RigidBodyHandle body;
+        phys::ColliderHandle collider;
+        std::string error;
+        if (!sleepingWorld.createBox(1.0f, 1.0f, 1.0f,
+                {static_cast<float>(index) * 5.0f, 0.0f, 0.0f},
+                1.0f, false, 0.0f, 0.5f, body, collider, error))
+            throw std::runtime_error(error);
+    }
+    for (int step = 0; step < 240; ++step)
+        sleepingWorld.step(1.0f / 120.0f);
+    const AllocationSummary sleepingSteady = countStepAllocations(sleepingWorld, 32);
+    const auto& stats = sleepingWorld.lastStepStats();
+    if (stats.awakeBodyCount != 0 || stats.sleepingBodyCount != 4
+        || sleepingSteady.total != 0 || sleepingSteady.maximum != 0) {
+        std::cerr << "sleeping-world allocation regression: "
+                  << sleepingSteady.total << " total, " << sleepingSteady.maximum
+                  << " max, " << stats.awakeBodyCount << " awake\n";
+        return false;
+    }
+    return true;
+}
+
 }
 
 int main()
 {
     try {
-        if (testOptions() && testMixedScene() && testWarmupAndReport())
+        if (testOptions() && testMixedScene() && testWarmupAndReport()
+            && testSteadyStateAllocations())
             return 0;
         std::cerr << "benchmark configuration, scene, or report regression\n";
     }

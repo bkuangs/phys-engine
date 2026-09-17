@@ -61,9 +61,11 @@ One "sweep" means visiting every constraint once: 100 contacts x 10 sweeps = 1,0
 
 #include <phys/solver/sequential_impulse_solver.hpp>
 #include <phys/world/physics_world.hpp>
+#include "../world/step_workspace.hpp"
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <numeric>
 #include <tuple>
 #include <utility>
 
@@ -84,44 +86,22 @@ namespace phys
 			return dot(delta, delta);
 		}
 
-		struct PreparedBody
-		{
-			RigidBody *body = nullptr;
-			float inverseMass = 0.0f;
-			Mat3 inverseInertiaWorld{};
-		};
-
-		struct PreparedContactPoint
-		{
-			Vec3 offsetA{};
-			Vec3 offsetB{};
-			Vec3 tangent1{};
-			Vec3 tangent2{};
-			Vec3 normalResponseA{};
-			Vec3 normalResponseB{};
-			Vec3 tangentResponseA1{};
-			Vec3 tangentResponseB1{};
-			Vec3 tangentResponseA2{};
-			Vec3 tangentResponseB2{};
-			float inverseEffectiveMass = 0.0f;
-			float inverseTangentMass1 = 0.0f;
-			float inverseTangentMass2 = 0.0f;
-			float bias = 0.0f;
-			float restitutionVelocity = 0.0f;
-		};
-
-		struct PreparedManifold
-		{
-			ContactManifold *manifold = nullptr;
-			PreparedBody *bodyA = nullptr;
-			PreparedBody *bodyB = nullptr;
-			std::array<PreparedContactPoint, 4> points{};
-		};
+		using detail::PreparedBody;
+		using detail::PreparedContactPoint;
+		using detail::PreparedManifold;
 
 	}
 
 	void SequentialImpulseSolver::solve(std::vector<ContactManifold> &contacts,
 										PhysicsWorld &world, float dt)
+	{
+		detail::SolverWorkspace workspace;
+		solve(contacts, world, dt, workspace);
+	}
+
+	void SequentialImpulseSolver::solve(std::vector<ContactManifold> &contacts,
+										PhysicsWorld &world, float dt,
+										detail::SolverWorkspace &workspace)
 	{
 		constexpr float slop = 0.005f; // how much overlap we can tolerate before solver triggers
 		constexpr int iterations = 8;
@@ -152,17 +132,25 @@ namespace phys
 		//     read current velocity
 		//     calculate error relative to fixed target
 		//     apply impulse immediately
-		std::vector<PreparedBody> preparedBodies;
+		auto &preparedBodies = workspace.preparedBodies;
+		auto &preparedContacts = workspace.preparedContacts;
+		preparedContacts.clear();
+		if (++workspace.generation == 0)
+		{
+			for (PreparedBody &prepared : preparedBodies)
+				prepared.generation = 0;
+			workspace.generation = 1;
+		}
 		auto prepareBody = [&](RigidBody *body, uint32_t index) -> PreparedBody * {
-			// Allocate only when a manifold is solved; storage stays fixed for this call.
-			if (preparedBodies.empty())
+			if (preparedBodies.size() < world.slots.size())
 				preparedBodies.resize(world.slots.size());
 			PreparedBody &prepared = preparedBodies[index];
-			if (!prepared.body)
+			if (prepared.generation != workspace.generation)
 			{
 				prepared.body = body;
 				prepared.inverseMass = body->getInverseMass();
 				prepared.inverseInertiaWorld = body->getInverseInertiaWorld();
+				prepared.generation = workspace.generation;
 			}
 			return &prepared;
 		};
@@ -182,8 +170,6 @@ namespace phys
 			body->angularVelocity += angularResponse * magnitude;
 		};
 
-		std::vector<PreparedManifold> preparedContacts;
-		preparedContacts.reserve(contacts.size());
 		for (ContactManifold &manifold : contacts)
 		{
 			RigidBody *bodyA = world.getBody(manifold.bodyA);
@@ -195,6 +181,8 @@ namespace phys
 				&& (bodyB->isStatic || bodyB->isSleeping()))
 				continue;
 
+			if (preparedContacts.empty() && preparedContacts.capacity() < contacts.size())
+				preparedContacts.reserve(contacts.size());
 			PreparedManifold prepared;
 			prepared.manifold = &manifold;
 			prepared.bodyA = prepareBody(bodyA, manifold.bodyA.index);
@@ -385,8 +373,15 @@ namespace phys
 			}
 		}
 
-		std::vector<PhysicsWorld::CachedContact> nextCache;
-		nextCache.reserve(contacts.size() * 2);
+		auto &nextCache = world.nextCachedContacts;
+		nextCache.clear();
+		std::size_t requiredCacheSize = world.sleepingEnabled
+			? world.cachedContacts.size()
+			: 0;
+		for (const PreparedManifold &prepared : preparedContacts)
+			requiredCacheSize += prepared.manifold->pointCount;
+		if (nextCache.capacity() < requiredCacheSize)
+			nextCache.reserve(requiredCacheSize);
 		if (world.sleepingEnabled)
 			for (const auto &cached : world.cachedContacts)
 			{
@@ -414,9 +409,29 @@ namespace phys
 			}
 		}
 		// Keep the first-match order within each pair; never reorder the live solve.
-		if (!std::is_sorted(nextCache.begin(), nextCache.end(), cachePairLess))
-			std::stable_sort(nextCache.begin(), nextCache.end(), cachePairLess);
-		world.cachedContacts = std::move(nextCache);
+		if (std::is_sorted(nextCache.begin(), nextCache.end(), cachePairLess))
+			world.cachedContacts.swap(nextCache);
+		else
+		{
+			auto &cacheOrder = workspace.cacheOrder;
+			cacheOrder.resize(nextCache.size());
+			std::iota(cacheOrder.begin(), cacheOrder.end(), 0);
+			std::sort(cacheOrder.begin(), cacheOrder.end(), [&](std::size_t left, std::size_t right) {
+				if (cachePairLess(nextCache[left], nextCache[right]))
+					return true;
+				if (cachePairLess(nextCache[right], nextCache[left]))
+					return false;
+				return left < right;
+			});
+			world.cachedContacts.clear();
+			if (world.cachedContacts.capacity() < nextCache.size())
+				world.cachedContacts.reserve(nextCache.size());
+			for (std::size_t index : cacheOrder)
+				world.cachedContacts.push_back(nextCache[index]);
+			nextCache.clear();
+		}
+
+		preparedContacts.clear();
 	}
 
 }

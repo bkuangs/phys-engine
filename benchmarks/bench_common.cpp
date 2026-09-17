@@ -118,6 +118,7 @@ namespace phys::bench
         double firstStepMs = 0.0;
         std::size_t deadlineMisses = 0;
         std::size_t totalAllocations = 0;
+        std::size_t maxAllocationsPerStep = 0;
         std::size_t totalContacts = 0;
         std::size_t totalContactPoints = 0;
         std::size_t totalCandidates = 0;
@@ -137,6 +138,7 @@ namespace phys::bench
                 stepAllocations = allocs.count();
             }
             totalAllocations += stepAllocations;
+            maxAllocationsPerStep = std::max(maxAllocationsPerStep, stepAllocations);
             const StepStats &stats = world.lastStepStats();
             if (i == 0)
             {
@@ -244,7 +246,10 @@ namespace phys::bench
         }
         report.narrowPhaseMeanMs = narrowPhaseStats.summarize().mean;
         report.solverMeanMs = solverStats.summarize().mean;
-        report.allocationsPerStep = totalAllocations / options.measuredSteps;
+        report.allocationsPerStep = static_cast<double>(totalAllocations)
+            / static_cast<double>(options.measuredSteps);
+        report.totalAllocations = totalAllocations;
+        report.maxAllocationsPerStep = maxAllocationsPerStep;
         report.minContacts = minContacts;
         report.maxContacts = maxContacts;
         report.maxContactPenetration = maxPenetration;
@@ -467,7 +472,10 @@ namespace phys::bench
         out << "Narrowphase time:            " << narrowPhaseMeanMs << " ms\n";
         out << "Solver time:                 " << solverMeanMs << " ms\n\n";
 
-        out << "Engine heap allocations / step: " << allocationsPerStep << "\n\n";
+        out << "Engine heap allocations:\n";
+        out << "    mean / step:             " << allocationsPerStep << "\n";
+        out << "    total:                   " << totalAllocations << "\n";
+        out << "    max / step:              " << maxAllocationsPerStep << "\n\n";
         out << "Contact workload (measured interval):\n";
         out << "    mean manifolds:          " << meanContacts << "\n";
         out << "    min/max manifolds:       " << minContacts << " / " << maxContacts << "\n";

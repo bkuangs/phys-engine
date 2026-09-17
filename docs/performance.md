@@ -945,12 +945,13 @@ solver across orientation, mass, static-state, and body-generation changes.
 Existing friction, restitution, stacking, warm-start identity, backend-equivalence,
 and sleep/wake regressions also remain covered.
 
-On this arm64 build, the temporary body table costs 48 bytes per world body slot
-and one additional allocation on a solve with prepared manifolds. Prepared
+On this arm64 build, the prepared body table costs 48 bytes per world body slot.
+Prepared
 contact-point storage grows from 68 to 140 bytes, and the four-point prepared
 manifold from 296 to 584 bytes. This is an arithmetic-for-memory tradeoff, not
-an allocation optimization. The table is discarded each solve, avoiding stale
-pose/mass data and additional public-body cache invalidation machinery.
+an allocation optimization by itself. The later
+[step-workspace reuse](#step-workspace-reuse) retains this storage but refreshes
+each used body entry once per solve generation.
 
 Reproduce with the standard runners, comparing against `0e0da25` in a separate
 build:
@@ -1008,6 +1009,53 @@ The 2,500-body tree run still misses 5/1,200 deadlines, and both 10,000-body run
 miss all deadlines. These unpaced, shared-machine measurements establish a mean
 cost reduction, not a worst-case or real-time guarantee. Reproduce using the
 same commands as the solver-cache comparison, with `331c3d3` as the baseline.
+
+## Step-workspace reuse
+
+`PhysicsWorld::step()` now retains private, world-local high-water storage for
+active bounds, collider mappings, broadphase records and pairs, dynamic-tree
+traversal, prepared solver data, and the next warm-start cache. The public
+broadphase and solver APIs keep their value-returning behavior; only the world
+step uses the reusable internal path.
+
+Copying a world copies simulation state but starts with empty scratch storage.
+Moving a world transfers both state and scratch. Solver body entries carry a
+solve generation, so retained pointers are never read by a later solve without
+being refreshed. Scratch capacity is intentionally retained until the world is
+destroyed or copy-assigned; this trades peak resident memory for predictable
+steady-state work.
+
+The allocation regression warms an unchanged overlapping-box workload and then
+requires exactly zero allocations across 32 steps for SAP, uniform-grid, and
+dynamic-tree broadphases. It repeats the check after copy, move, and population
+growth, and also covers a fully sleeping world. Capacity growth remains allowed
+when a changing workload exceeds its previous high-water mark.
+
+The [Release comparison](../benchmarks/results/workspace-reuse-release.txt)
+uses three interleaved control/current runs of the 240-warmup, 240-measured
+mixed tree workload. The exact current allocation totals are deterministic
+across all three runs:
+
+| Bodies | Control reported allocations/step | Reused mean | Reused total / max-step |
+| ---: | ---: | ---: | ---: |
+| 100 | 16 | 0.25 | 59 / 3 |
+| 500 | 18 | 0.44 | 105 / 2 |
+| 1,000 | 19 | 0.61 | 146 / 2 |
+| 2,500 | 21 | 0.89 | 213 / 2 |
+| 5,000 | 22 | 1.21 | 291 / 2 |
+| 10,000 | 23 | 1.46 | 351 / 2 |
+
+The control metric used integer division and therefore understates its true
+mean; even against those lower bounds, reuse removes 93.7%-98.4% of reported
+per-step allocation churn. The mixed scene keeps changing after warmup, so its
+remaining sparse allocations are legitimate capacity growth rather than a
+failure of the unchanged-workload guarantee.
+
+Median full-step means are effectively flat: control/reuse is 0.12/0.13 ms at
+100 bodies, 0.76/0.76 at 500, 1.72/1.72 at 1,000, 4.46/4.48 at 2,500,
+9.16/9.21 at 5,000, and 22.43/22.57 at 10,000. This establishes a large
+allocation-count reduction and a steadier allocation ceiling, not a measurable
+latency improvement on this workload.
 
 ## Reproducing the Release workload
 

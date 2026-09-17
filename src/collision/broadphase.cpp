@@ -1,4 +1,5 @@
 #include <phys/collision/broadphase.hpp>
+#include "../world/step_workspace.hpp"
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -22,12 +23,6 @@ void sortPairs(std::vector<BroadPhasePair>& pairs)
         return left.second < right.second;
     });
 }
-
-struct CellEntry
-{
-    std::array<int32_t, 3> cell;
-    std::size_t index;
-};
 
 bool gridRange(const Aabb& bounds, double cellSize,
                std::array<int32_t, 3>& firstCell, std::array<int, 3>& cellCounts)
@@ -57,12 +52,14 @@ bool gridRange(const Aabb& bounds, double cellSize,
     return true;
 }
 
-std::vector<BroadPhasePair> findGridPairs(const std::vector<Aabb>& bounds,
-                                         BroadPhaseStats* stats)
+void findGridPairs(const std::vector<Aabb>& bounds, std::vector<BroadPhasePair>& pairs,
+                   BroadPhaseStats* stats, detail::BroadPhaseWorkspace& workspace)
 {
     auto recordBuildStart = Clock::now();
-    std::vector<double> widths;
-    widths.reserve(bounds.size());
+    auto& widths = workspace.gridWidths;
+    widths.clear();
+    if (widths.capacity() < bounds.size())
+        widths.reserve(bounds.size());
     for (const Aabb& box : bounds) {
         double width = std::max({static_cast<double>(box.max.x) - box.min.x,
                                 static_cast<double>(box.max.y) - box.min.y,
@@ -77,10 +74,16 @@ std::vector<BroadPhasePair> findGridPairs(const std::vector<Aabb>& bounds,
         cellSize = *median;
     }
 
-    std::vector<CellEntry> entries;
-    entries.reserve(bounds.size() * 8);
-    std::vector<uint8_t> inGrid(bounds.size(), 0);
-    std::vector<std::size_t> overflow;
+    auto& entries = workspace.gridEntries;
+    entries.clear();
+    if (entries.capacity() < bounds.size() * 8)
+        entries.reserve(bounds.size() * 8);
+    auto& inGrid = workspace.gridMembership;
+    inGrid.assign(bounds.size(), 0);
+    auto& overflow = workspace.gridOverflow;
+    overflow.clear();
+    if (overflow.capacity() < bounds.size())
+        overflow.reserve(bounds.size());
     for (std::size_t index = 0; index < bounds.size(); ++index) {
         std::array<int32_t, 3> firstCell{};
         std::array<int, 3> cellCounts{};
@@ -105,7 +108,7 @@ std::vector<BroadPhasePair> findGridPairs(const std::vector<Aabb>& bounds,
 
     auto scanStart = Clock::now();
     std::size_t comparisons = 0;
-    std::vector<BroadPhasePair> pairs;
+    pairs.clear();
     auto checkPair = [&](std::size_t first, std::size_t second) {
         ++comparisons;
         if (bounds[first].overlaps(bounds[second]))
@@ -141,7 +144,6 @@ std::vector<BroadPhasePair> findGridPairs(const std::vector<Aabb>& bounds,
             Milliseconds(pairSortEnd - pairSortStart).count(),
             0, pairs.size(), comparisons, entries.size(), overflow.size(), cellSize};
     }
-    return pairs;
 }
 
 }
@@ -149,19 +151,26 @@ std::vector<BroadPhasePair> findGridPairs(const std::vector<Aabb>& bounds,
 std::vector<BroadPhasePair> BroadPhase::findCandidatePairs(
     const std::vector<Aabb>& bounds, BroadPhaseStats* stats, BroadPhaseAlgorithm algorithm)
 {
+    std::vector<BroadPhasePair> pairs;
+    detail::BroadPhaseWorkspace workspace;
+    detail::findCandidatePairs(bounds, pairs, stats, algorithm, workspace);
+    return pairs;
+}
+
+void detail::findCandidatePairs(const std::vector<Aabb>& bounds,
+    std::vector<BroadPhasePair>& pairs, BroadPhaseStats* stats,
+    BroadPhaseAlgorithm algorithm, BroadPhaseWorkspace& workspace)
+{
     if (algorithm == BroadPhaseAlgorithm::DynamicTree)
         throw std::invalid_argument("DynamicTree requires a persistent DynamicAabbTree instance");
     if (algorithm == BroadPhaseAlgorithm::UniformGrid)
-        return findGridPairs(bounds, stats);
-    struct SweepEntry
-    {
-        Aabb bounds;
-        std::size_t originalIndex;
-    };
+        return findGridPairs(bounds, pairs, stats, workspace);
 
     auto recordBuildStart = Clock::now();
-    std::vector<SweepEntry> entries;
-    entries.reserve(bounds.size());
+    auto& entries = workspace.sweepEntries;
+    entries.clear();
+    if (entries.capacity() < bounds.size())
+        entries.reserve(bounds.size());
     for (std::size_t index = 0; index < bounds.size(); ++index)
         entries.push_back({bounds[index], index});
     auto recordSortStart = Clock::now();
@@ -172,7 +181,7 @@ std::vector<BroadPhasePair> BroadPhase::findCandidatePairs(
     });
 
     auto sweepStart = Clock::now();
-    std::vector<BroadPhasePair> pairs;
+    pairs.clear();
     std::size_t xWindowComparisons = 0;
     for (std::size_t i = 0; i < entries.size(); ++i) {
         const SweepEntry& first = entries[i];
@@ -201,7 +210,6 @@ std::vector<BroadPhasePair> BroadPhase::findCandidatePairs(
             xWindowComparisons,
             pairs.size()};
     }
-    return pairs;
 }
 
 }

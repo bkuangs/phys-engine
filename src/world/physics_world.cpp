@@ -2,6 +2,7 @@
 #include <phys/collision/broadphase.hpp>
 #include <phys/collision/narrowphase.hpp>
 #include <phys/solver/sequential_impulse_solver.hpp>
+#include "step_workspace.hpp"
 #include <chrono>
 #include <algorithm>
 #include <cmath>
@@ -42,6 +43,72 @@ namespace phys
             return sameVector(std::get<Box>(a.shape).halfExtents, std::get<Box>(b.shape).halfExtents);
         }
 
+    }
+
+    struct PhysicsWorld::StepWorkspace
+    {
+        std::vector<Aabb> bounds;
+        std::vector<uint32_t> colliderIndices;
+        std::vector<std::size_t> collidersPerBody;
+        std::vector<BroadPhasePair> candidatePairs;
+        std::vector<std::pair<DynamicAabbTree::ProxyId, DynamicAabbTree::ProxyId>> treeStack;
+        detail::BroadPhaseWorkspace broadPhase;
+        detail::SolverWorkspace solver;
+    };
+
+    PhysicsWorld::PhysicsWorld() = default;
+    PhysicsWorld::~PhysicsWorld() = default;
+
+    PhysicsWorld::PhysicsWorld(const PhysicsWorld &other)
+        : gravity(other.gravity),
+          broadPhaseAlgorithm(other.broadPhaseAlgorithm),
+          slots(other.slots),
+          freeList(other.freeList),
+          colliderSlots(other.colliderSlots),
+          dynamicTree(other.dynamicTree),
+          freeColliderList(other.freeColliderList),
+          currentContacts(other.currentContacts),
+          cachedContacts(other.cachedContacts),
+          stats(other.stats),
+          sleepingEnabled(other.sleepingEnabled),
+          sleepGravity(other.sleepGravity),
+          sleepStates(other.sleepStates),
+          sleepColliders(other.sleepColliders)
+    {
+    }
+
+    PhysicsWorld &PhysicsWorld::operator=(const PhysicsWorld &other)
+    {
+        if (this == &other)
+            return *this;
+
+        gravity = other.gravity;
+        broadPhaseAlgorithm = other.broadPhaseAlgorithm;
+        slots = other.slots;
+        freeList = other.freeList;
+        colliderSlots = other.colliderSlots;
+        dynamicTree = other.dynamicTree;
+        freeColliderList = other.freeColliderList;
+        currentContacts = other.currentContacts;
+        cachedContacts = other.cachedContacts;
+        std::vector<CachedContact>().swap(nextCachedContacts);
+        stats = other.stats;
+        stepWorkspace.reset();
+        sleepingEnabled = other.sleepingEnabled;
+        sleepGravity = other.sleepGravity;
+        sleepStates = other.sleepStates;
+        sleepColliders = other.sleepColliders;
+        return *this;
+    }
+
+    PhysicsWorld::PhysicsWorld(PhysicsWorld &&other) noexcept = default;
+    PhysicsWorld &PhysicsWorld::operator=(PhysicsWorld &&other) noexcept = default;
+
+    PhysicsWorld::StepWorkspace &PhysicsWorld::workspace()
+    {
+        if (!stepWorkspace)
+            stepWorkspace = std::make_unique<StepWorkspace>();
+        return *stepWorkspace;
     }
 
     RigidBodyHandle PhysicsWorld::addBody(const RigidBody &body)
@@ -437,11 +504,19 @@ namespace phys
 
         // BROAD-PHASE: Collect AABB-overlapping collider pairs as candidates.
         auto broadPhaseStart = Clock::now();
-        std::vector<Aabb> bounds;
-        std::vector<uint32_t> colliderIndices;
-        std::vector<std::size_t> collidersPerBody(slots.size(), 0);
-        bounds.reserve(colliderSlots.size());
-        colliderIndices.reserve(colliderSlots.size());
+        StepWorkspace &stepWorkspace = workspace();
+        auto &bounds = stepWorkspace.bounds;
+        auto &colliderIndices = stepWorkspace.colliderIndices;
+        auto &collidersPerBody = stepWorkspace.collidersPerBody;
+        auto &candidatePairs = stepWorkspace.candidatePairs;
+        bounds.clear();
+        colliderIndices.clear();
+        collidersPerBody.assign(slots.size(), 0);
+        candidatePairs.clear();
+        if (bounds.capacity() < colliderSlots.size())
+            bounds.reserve(colliderSlots.size());
+        if (colliderIndices.capacity() < colliderSlots.size())
+            colliderIndices.reserve(colliderSlots.size());
         std::size_t possiblePairs = 0;
 
         for (uint32_t index = 0; index < colliderSlots.size(); ++index)
@@ -456,9 +531,7 @@ namespace phys
             bounds.push_back(slot.collider.bounds);
             colliderIndices.push_back(index);
         }
-
         stats.broadPhaseCollectMs = elapsedMs(broadPhaseStart);
-        std::vector<BroadPhasePair> candidatePairs;
         if (broadPhaseAlgorithm == BroadPhaseAlgorithm::DynamicTree)
         {
             auto maintenanceStart = Clock::now();
@@ -488,15 +561,16 @@ namespace phys
                     ++reinsertions;
             }
             double maintenanceMs = elapsedMs(maintenanceStart);
-            candidatePairs = dynamicTree.findCandidatePairs(&stats.broadPhaseDetails);
+            dynamicTree.findCandidatePairs(
+                candidatePairs, stepWorkspace.treeStack, &stats.broadPhaseDetails);
             stats.broadPhaseDetails.recordBuildMs = maintenanceMs;
             stats.broadPhaseDetails.treeInsertions = insertions;
             stats.broadPhaseDetails.treeRemovals = removals;
             stats.broadPhaseDetails.treeReinsertions = reinsertions;
         }
         else
-            candidatePairs = BroadPhase::findCandidatePairs(
-                bounds, &stats.broadPhaseDetails, broadPhaseAlgorithm);
+            detail::findCandidatePairs(bounds, candidatePairs,
+                &stats.broadPhaseDetails, broadPhaseAlgorithm, stepWorkspace.broadPhase);
         auto filterStart = Clock::now();
         if (broadPhaseAlgorithm != BroadPhaseAlgorithm::DynamicTree)
             for (BroadPhasePair &pair : candidatePairs)
@@ -573,7 +647,7 @@ namespace phys
         }
 
         auto solverStart = Clock::now();
-        SequentialImpulseSolver::solve(currentContacts, *this, dt);
+        SequentialImpulseSolver::solve(currentContacts, *this, dt, stepWorkspace.solver);
         stats.solverMs = elapsedMs(solverStart);
 
         // Pose-integration: advance each active body by its current velocities.

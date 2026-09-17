@@ -1,4 +1,5 @@
 #pragma once
+#include <memory>
 #include <string>
 #include <vector>
 #include "phys/core/constants.hpp"
@@ -19,6 +20,13 @@ namespace phys
     class PhysicsWorld
     {
     public:
+        PhysicsWorld();
+        ~PhysicsWorld();
+        PhysicsWorld(const PhysicsWorld &other);
+        PhysicsWorld &operator=(const PhysicsWorld &other);
+        PhysicsWorld(PhysicsWorld &&other) noexcept;
+        PhysicsWorld &operator=(PhysicsWorld &&other) noexcept;
+
         // Use 'static' members to access variables without having to create an object
         static constexpr float minBodySize = BodyLimits::minSize;
         static constexpr float maxBodySize = BodyLimits::maxSize;
@@ -96,7 +104,11 @@ namespace phys
         std::vector<uint32_t> freeColliderList;
         std::vector<ContactManifold> currentContacts;
         std::vector<CachedContact> cachedContacts; // Sorted by ordered body handles; stable within each pair.
+        std::vector<CachedContact> nextCachedContacts;
         StepStats stats;
+
+        struct StepWorkspace;
+        std::unique_ptr<StepWorkspace> stepWorkspace;
 
         struct SleepState
         {
@@ -124,6 +136,7 @@ namespace phys
         void wakeSleepIslands();
         void prepareSleeping();
         void finishSleeping(float dt);
+        StepWorkspace &workspace();
     };
 
 }

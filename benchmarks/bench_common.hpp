@@ -87,7 +87,9 @@ struct BenchmarkReport
     double narrowPhaseMeanMs = 0.0;
     double solverMeanMs = 0.0;
 
-    std::size_t allocationsPerStep = 0;
+    double allocationsPerStep = 0.0;
+    std::size_t totalAllocations = 0;
+    std::size_t maxAllocationsPerStep = 0;
     double meanContacts = 0.0;
     double meanContactPoints = 0.0;
     double meanCandidatePairs = 0.0;

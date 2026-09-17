@@ -267,14 +267,25 @@ void DynamicAabbTree::detachLeaf(ProxyId leaf)
 
 std::vector<BroadPhasePair> DynamicAabbTree::findCandidatePairs(BroadPhaseStats* stats) const
 {
-    using Clock = std::chrono::steady_clock;
-    auto queryStart = Clock::now();
     std::vector<BroadPhasePair> pairs;
     std::vector<std::pair<ProxyId, ProxyId>> stack;
+    findCandidatePairs(pairs, stack, stats);
+    return pairs;
+}
+
+void DynamicAabbTree::findCandidatePairs(std::vector<BroadPhasePair>& pairs,
+    std::vector<std::pair<ProxyId, ProxyId>>& stack, BroadPhaseStats* stats) const
+{
+    using Clock = std::chrono::steady_clock;
+    auto queryStart = Clock::now();
+    pairs.clear();
+    stack.clear();
     std::size_t visits = 0;
     std::size_t leafChecks = 0;
     if (root != noProxy) {
-        stack.reserve(static_cast<std::size_t>(height()) * 4 + 1);
+        const auto requiredCapacity = static_cast<std::size_t>(height()) * 4 + 1;
+        if (stack.capacity() < requiredCapacity)
+            stack.reserve(requiredCapacity);
         stack.emplace_back(root, root);
     }
     while (!stack.empty()) {
@@ -322,7 +333,6 @@ std::vector<BroadPhasePair> DynamicAabbTree::findCandidatePairs(BroadPhaseStats*
         stats->treeHeight = static_cast<std::size_t>(height());
         stats->treeProxyCount = proxyCount;
     }
-    return pairs;
 }
 
 }
