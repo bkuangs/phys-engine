@@ -115,6 +115,8 @@ namespace phys::bench
         double broadPhaseCollectTotalMs = 0.0;
         double broadPhaseFilterTotalMs = 0.0;
         BroadPhaseStats broadPhaseTotals{};
+        NarrowPhaseStats narrowPhaseTotals{};
+        SolverStats solverTotals{};
         double firstStepMs = 0.0;
         std::size_t deadlineMisses = 0;
         std::size_t totalAllocations = 0;
@@ -166,6 +168,20 @@ namespace phys::bench
             broadPhaseTotals.treeInsertions += stats.broadPhaseDetails.treeInsertions;
             broadPhaseTotals.treeRemovals += stats.broadPhaseDetails.treeRemovals;
             broadPhaseTotals.treeReinsertions += stats.broadPhaseDetails.treeReinsertions;
+            narrowPhaseTotals.sphereSphereCandidates += stats.narrowPhaseDetails.sphereSphereCandidates;
+            narrowPhaseTotals.sphereBoxCandidates += stats.narrowPhaseDetails.sphereBoxCandidates;
+            narrowPhaseTotals.boxBoxCandidates += stats.narrowPhaseDetails.boxBoxCandidates;
+            narrowPhaseTotals.sphereSphereContacts += stats.narrowPhaseDetails.sphereSphereContacts;
+            narrowPhaseTotals.sphereBoxContacts += stats.narrowPhaseDetails.sphereBoxContacts;
+            narrowPhaseTotals.boxBoxContacts += stats.narrowPhaseDetails.boxBoxContacts;
+            solverTotals.prepareMs += stats.solverDetails.prepareMs;
+            solverTotals.warmStartMs += stats.solverDetails.warmStartMs;
+            solverTotals.velocityIterationsMs += stats.solverDetails.velocityIterationsMs;
+            solverTotals.cacheUpdateMs += stats.solverDetails.cacheUpdateMs;
+            solverTotals.preparedPoints += stats.solverDetails.preparedPoints;
+            solverTotals.warmStartComparisons += stats.solverDetails.warmStartComparisons;
+            solverTotals.warmStartMatches += stats.solverDetails.warmStartMatches;
+            solverTotals.velocityPointVisits += stats.solverDetails.velocityPointVisits;
             if (stats.totalMs > deadlineMs)
                 ++deadlineMisses;
             totalContacts += stats.contactCount;
@@ -243,6 +259,20 @@ namespace phys::bench
             report.meanAwakeBodies = totalAwakeBodies / samples;
             report.meanSleepingBodies = totalSleepingBodies / samples;
             report.meanSolvedContacts = totalSolvedContacts / samples;
+            report.sphereSphereCandidatesPerStep = narrowPhaseTotals.sphereSphereCandidates / samples;
+            report.sphereBoxCandidatesPerStep = narrowPhaseTotals.sphereBoxCandidates / samples;
+            report.boxBoxCandidatesPerStep = narrowPhaseTotals.boxBoxCandidates / samples;
+            report.sphereSphereContactsPerStep = narrowPhaseTotals.sphereSphereContacts / samples;
+            report.sphereBoxContactsPerStep = narrowPhaseTotals.sphereBoxContacts / samples;
+            report.boxBoxContactsPerStep = narrowPhaseTotals.boxBoxContacts / samples;
+            report.solverPrepareMeanMs = solverTotals.prepareMs / samples;
+            report.solverWarmStartMeanMs = solverTotals.warmStartMs / samples;
+            report.solverVelocityIterationsMeanMs = solverTotals.velocityIterationsMs / samples;
+            report.solverCacheUpdateMeanMs = solverTotals.cacheUpdateMs / samples;
+            report.solverPreparedPointsPerStep = solverTotals.preparedPoints / samples;
+            report.solverWarmStartComparisonsPerStep = solverTotals.warmStartComparisons / samples;
+            report.solverWarmStartMatchesPerStep = solverTotals.warmStartMatches / samples;
+            report.solverVelocityPointVisitsPerStep = solverTotals.velocityPointVisits / samples;
         }
         report.narrowPhaseMeanMs = narrowPhaseStats.summarize().mean;
         report.solverMeanMs = solverStats.summarize().mean;
@@ -469,8 +499,26 @@ namespace phys::bench
             out << "    reinsertions:            " << totalTreeReinsertions << "\n\n";
         }
 
-        out << "Narrowphase time:            " << narrowPhaseMeanMs << " ms\n";
-        out << "Solver time:                 " << solverMeanMs << " ms\n\n";
+        out << "Narrowphase detail (mean per step):\n";
+        out << "    sphere/sphere candidates:" << std::setw(10) << sphereSphereCandidatesPerStep
+            << "  contacts:" << std::setw(10) << sphereSphereContactsPerStep << "\n";
+        out << "    sphere/box candidates:   " << std::setw(10) << sphereBoxCandidatesPerStep
+            << "  contacts:" << std::setw(10) << sphereBoxContactsPerStep << "\n";
+        out << "    box/box candidates:      " << std::setw(10) << boxBoxCandidatesPerStep
+            << "  contacts:" << std::setw(10) << boxBoxContactsPerStep << "\n";
+        out << "    total time:              " << std::setw(10) << narrowPhaseMeanMs << " ms\n\n";
+
+        out << "Solver detail (mean per step):\n" << std::setprecision(4);
+        out << "    prepare constraints:     " << solverPrepareMeanMs << " ms\n";
+        out << "    warm start:              " << solverWarmStartMeanMs << " ms\n";
+        out << "    velocity iterations:     " << solverVelocityIterationsMeanMs << " ms\n";
+        out << "    update contact cache:    " << solverCacheUpdateMeanMs << " ms\n";
+        out << std::setprecision(2);
+        out << "    total time:              " << solverMeanMs << " ms\n";
+        out << "    prepared points:         " << solverPreparedPointsPerStep << "\n";
+        out << "    warm-start comparisons:  " << solverWarmStartComparisonsPerStep << "\n";
+        out << "    warm-start matches:      " << solverWarmStartMatchesPerStep << "\n";
+        out << "    velocity point visits:   " << solverVelocityPointVisitsPerStep << "\n\n";
 
         out << "Engine heap allocations:\n";
         out << "    mean / step:             " << allocationsPerStep << "\n";

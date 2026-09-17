@@ -1,0 +1,102 @@
+Mixed SAP Hot-Subphase Measurements
+===================================
+
+Date:                       2026-09-17
+Hardware:                   Apple M2, macOS arm64
+Compiler/build:             Apple Clang, Release (-O3 -DNDEBUG), C++20
+Base revision:              495ff99
+Source:                     perf/measure-hot-subphases working tree
+Timing command:             phys_collision_bench 1200 sap mixed 240
+Timing protocol:            Three runs; median of per-run means
+Sampling command:           sample_cpu.py <executable> <output> --scenes mixed5k mixed10k
+Sampling protocol:          240 warmup steps, then 15 seconds at 1 ms
+
+Instrumentation
+---------------
+
+The solver records four timers per step: constraint preparation, warm start,
+eight fixed velocity iterations, and contact-cache update. Narrowphase records
+candidate and successful-contact counts for sphere/sphere, sphere/box, and
+box/box pairs. Per-candidate timers were deliberately avoided because their
+clock overhead would distort the hot loop.
+
+The dedicated CPU profiling runner now supports the same mixed 5,000- and
+10,000-body SAP scenes. It does not use the allocation-counting override or
+retain per-step timing samples. Raw machine-specific call graphs are retained
+as session artifacts rather than repository results.
+
+Top-level timing
+----------------
+
+bodies,step_ms,broadphase_ms,narrowphase_ms,solver_ms
+5000,9.14,2.16,1.92,4.97
+10000,19.79,5.35,3.91,10.37
+
+The corresponding uninstrumented main medians were 9.15 and 19.72 ms. The
+instrumented means differ by -0.1% and +0.4%, which is below run-to-run noise
+in these captures.
+
+The instrumented 10,000-body profile attributes 52.1% of main-thread samples
+to the solver, 27.2% to SAP, and 16.2% to narrowphase. The corresponding
+5,000-body shares are 54.6%, 23.0%, and 17.8%. These agree with the explicit
+stage timers.
+
+Solver
+------
+
+bodies,prepare_ms,warm_start_ms,velocity_iterations_ms,cache_update_ms,prepared_points,velocity_point_visits
+5000,0.5267,0.4802,3.8496,0.1119,11982.82,95862.57
+10000,1.1511,1.0365,7.9535,0.2306,23810.79,190486.36
+
+The fixed eight velocity sweeps are the dominant measured region: 42.1% of the
+entire 5,000-body step and 40.2% of the 10,000-body step. Preparation, warm
+start, and cache update together account for only about 12% of either step.
+
+Within the sampled velocity-loop region, source-attributed samples were:
+
+bodies,normal_lines,friction_lines,optimized_or_shared_lines
+5000,31.0%,40.2%,28.8%
+10000,28.6%,42.7%,28.7%
+
+Optimized source-line attribution is approximate, but both captures identify
+the two-tangent friction section as the largest named part of the velocity
+loop. The current loop rereads both bodies' contact velocities and applies
+body updates independently for the normal and each of two tangent axes.
+
+Broadphase
+----------
+
+bodies,build_records_ms,sort_records_ms,sweep_emit_ms,sort_pairs_ms
+5000,0.0113,0.1833,1.4650,0.4607
+10000,0.0229,0.3881,3.8475,1.0093
+
+At 10,000 bodies, sweep-and-emit alone costs 19.5% of the complete step and
+processes about 1.03 million X-window comparisons to emit about 24,682
+candidates. Record construction and initial sorting are not meaningful targets.
+
+Narrowphase
+-----------
+
+bodies,sphere_sphere_candidates,sphere_box_candidates,box_box_candidates,sphere_sphere_contacts,sphere_box_contacts,box_box_contacts
+5000,1607.85,6373.22,4225.49,531.72,4342.79,3177.62
+10000,3218.27,12916.39,8547.13,1033.24,8783.10,6361.26
+
+Box/box tests are only 34.6% of candidates but consume about 80% of sampled
+narrowphase time. Because sphere contacts have one point, box/box manifolds
+account for the remaining 7,108.31 points at 5,000 bodies and 13,994.45 points
+at 10,000 bodies: about 59% of all solver points.
+
+Conclusion
+----------
+
+The primary bottleneck is the fixed velocity solver's per-contact-point loop,
+not allocation, cache lookup, transform composition, or convergence checking.
+Its two-axis friction work is the largest identifiable portion. The strongest
+next experiment is a combined two-dimensional friction solve that computes one
+post-normal relative velocity and applies one combined tangent impulse, with
+strict trajectory, stability, and full-step performance gates.
+
+The secondary targets are box/box manifold generation and SAP's X-window
+sweep. Reducing box contact points may also lower solver work, but bluntly
+capping manifolds would trade away stack stability and is not justified by
+these measurements alone.

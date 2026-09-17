@@ -150,6 +150,19 @@ bool testWarmupAndReport()
         || !std::isfinite(report.solverTime.p99)
         || !std::isfinite(report.unattributedTime.max)
         || report.meanContacts <= 0 || report.meanContactPoints < report.meanContacts
+        || std::abs(report.sphereSphereCandidatesPerStep
+                + report.sphereBoxCandidatesPerStep
+                + report.boxBoxCandidatesPerStep
+                - report.meanCandidatePairs) > 1e-6
+        || std::abs(report.sphereSphereContactsPerStep
+                + report.sphereBoxContactsPerStep
+                + report.boxBoxContactsPerStep
+                - report.meanContacts) > 1e-6
+        || report.solverPrepareMeanMs < 0 || report.solverWarmStartMeanMs < 0
+        || report.solverVelocityIterationsMeanMs < 0
+        || report.solverCacheUpdateMeanMs < 0
+        || report.solverVelocityPointVisitsPerStep
+            != report.solverPreparedPointsPerStep * 8
         || report.sleepingEnabled || report.meanAwakeBodies != 32 || report.meanSleepingBodies != 0)
         return false;
     std::ostringstream output;
@@ -159,6 +172,8 @@ bool testWarmupAndReport()
         || output.str().find("Measured steps:             120") == std::string::npos
         || output.str().find("Stage timing distribution (ms):") == std::string::npos
         || output.str().find("Slowest measured step (") == std::string::npos
+        || output.str().find("Narrowphase detail (mean per step):") == std::string::npos
+        || output.str().find("Solver detail (mean per step):") == std::string::npos
         || output.str().find("max / step:") == std::string::npos
         || output.str().find("candidates/manifolds:") == std::string::npos
         || output.str().find("no escaped/below-floor bodies") == std::string::npos)

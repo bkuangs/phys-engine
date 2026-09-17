@@ -19,8 +19,9 @@ def stop(process):
 
 
 def profile(executable, sampler, output, scene):
-    sample_path = output / f"cpu-tree-{scene}.sample.txt"
-    log_path = output / f"cpu-tree-{scene}.run.txt"
+    broadphase = "sap" if scene.startswith("mixed") else "tree"
+    sample_path = output / f"cpu-{broadphase}-{scene}.sample.txt"
+    log_path = output / f"cpu-{broadphase}-{scene}.run.txt"
     if sample_path.exists() or log_path.exists():
         raise FileExistsError(f"Choose a fresh output directory; {scene} results already exist")
     process = subprocess.Popen(
@@ -66,6 +67,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("executable", type=Path)
     parser.add_argument("output_directory", type=Path)
+    parser.add_argument(
+        "--scenes",
+        nargs="+",
+        choices=("spheres", "boxes", "mixed5k", "mixed10k"),
+        default=("spheres", "boxes"),
+    )
     args = parser.parse_args()
     if sys.platform != "darwin":
         parser.error("This launcher requires macOS sample")
@@ -75,7 +82,7 @@ def main():
         parser.error("macOS sample is required")
     output = args.output_directory.resolve()
     output.mkdir(parents=True, exist_ok=True)
-    for scene in ("spheres", "boxes"):
+    for scene in args.scenes:
         profile(executable, sampler, output, scene)
 
 

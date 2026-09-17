@@ -64,6 +64,7 @@ One "sweep" means visiting every constraint once: 100 contacts x 10 sweeps = 1,0
 #include "../world/step_workspace.hpp"
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <numeric>
 #include <tuple>
@@ -74,6 +75,13 @@ namespace phys
 
 	namespace
 	{
+
+		using Clock = std::chrono::steady_clock;
+
+		double elapsedMs(Clock::time_point start)
+		{
+			return std::chrono::duration<double, std::milli>(Clock::now() - start).count();
+		}
 
 		float dot(const Vec3 &left, const Vec3 &right)
 		{
@@ -103,9 +111,15 @@ namespace phys
 										PhysicsWorld &world, float dt,
 										detail::SolverWorkspace &workspace)
 	{
+		SolverStats &stats = world.stats.solverDetails;
+		stats = {};
+		auto prepareStart = Clock::now();
 		constexpr float slop = 0.005f; // how much overlap we can tolerate before solver triggers
 		constexpr int iterations = 8;
 		const float inverseDt = 1.0f / std::max(dt, 1e-6f);
+		std::size_t preparedPointCount = 0;
+		std::size_t warmStartComparisons = 0;
+		std::size_t warmStartMatches = 0;
 
 		// Fixed terms while the Gauss-Seidel iterations update velocities.
 		// Incoming velocity is a "snapshot" of the restitution velocity we will need; this doesn't
@@ -242,6 +256,7 @@ namespace phys
 				preparedPoint.inverseTangentMass2 = prepared.bodyA->inverseMass + prepared.bodyB->inverseMass + dot(tangentAngularJacobianA, preparedPoint.tangentResponseA2) + dot(tangentAngularJacobianB, preparedPoint.tangentResponseB2);
 				if (preparedPoint.inverseEffectiveMass <= 0.0f)
 					continue;
+				++preparedPointCount;
 
 				preparedPoint.bias = std::max(point.penetration - slop, 0.0f) * (0.2f * inverseDt);
 				preparedPoint.restitutionVelocity =
@@ -253,6 +268,8 @@ namespace phys
 			preparedContacts.push_back(prepared);
 		}
 		world.stats.solvedContactCount = preparedContacts.size();
+		stats.preparedPoints = preparedPointCount;
+		stats.prepareMs = elapsedMs(prepareStart);
 
 		// Restore impulses from the previous step before the iterative solve.
 		// Local anchors provide a stable contact identity while body handles
@@ -262,6 +279,7 @@ namespace phys
 				< std::tie(right.bodyA.index, right.bodyA.generation, right.bodyB.index, right.bodyB.generation);
 		};
 		constexpr float cacheMatchDistanceSquared = 0.05f * 0.05f;
+		auto warmStart = Clock::now();
 		for (PreparedManifold &prepared : preparedContacts)
 		{
 			ContactManifold &manifold = *prepared.manifold;
@@ -276,6 +294,7 @@ namespace phys
 
 				for (auto cachedPoint = cachedRange.first; cachedPoint != cachedRange.second; ++cachedPoint)
 				{
+					++warmStartComparisons;
 					const PhysicsWorld::CachedContact &cached = *cachedPoint;
 					if (distanceSquared(cached.localAnchorA, point.localAnchorA) > cacheMatchDistanceSquared || distanceSquared(cached.localAnchorB, point.localAnchorB) > cacheMatchDistanceSquared)
 						continue;
@@ -289,11 +308,16 @@ namespace phys
 					Vec3 warmImpulse = manifold.normal * point.normalImpulse + preparedPoint.tangent1 * point.tangentImpulse1 + preparedPoint.tangent2 * point.tangentImpulse2;
 					applyCachedImpulse(*prepared.bodyA, -warmImpulse, preparedPoint.offsetA);
 					applyCachedImpulse(*prepared.bodyB, warmImpulse, preparedPoint.offsetB);
+					++warmStartMatches;
 					break;
 				}
 			}
 		}
+		stats.warmStartComparisons = warmStartComparisons;
+		stats.warmStartMatches = warmStartMatches;
+		stats.warmStartMs = elapsedMs(warmStart);
 
+		auto velocityIterationsStart = Clock::now();
 		for (int iteration = 0; iteration < iterations; ++iteration)
 		{
 			for (PreparedManifold &prepared : preparedContacts)
@@ -372,7 +396,10 @@ namespace phys
 				}
 			}
 		}
+		stats.velocityPointVisits = preparedPointCount * iterations;
+		stats.velocityIterationsMs = elapsedMs(velocityIterationsStart);
 
+		auto cacheUpdateStart = Clock::now();
 		auto &nextCache = world.nextCachedContacts;
 		nextCache.clear();
 		std::size_t requiredCacheSize = world.sleepingEnabled
@@ -432,6 +459,7 @@ namespace phys
 		}
 
 		preparedContacts.clear();
+		stats.cacheUpdateMs = elapsedMs(cacheUpdateStart);
 	}
 
 }

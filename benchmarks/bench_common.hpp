@@ -86,6 +86,20 @@ struct BenchmarkReport
 
     double narrowPhaseMeanMs = 0.0;
     double solverMeanMs = 0.0;
+    double sphereSphereCandidatesPerStep = 0.0;
+    double sphereBoxCandidatesPerStep = 0.0;
+    double boxBoxCandidatesPerStep = 0.0;
+    double sphereSphereContactsPerStep = 0.0;
+    double sphereBoxContactsPerStep = 0.0;
+    double boxBoxContactsPerStep = 0.0;
+    double solverPrepareMeanMs = 0.0;
+    double solverWarmStartMeanMs = 0.0;
+    double solverVelocityIterationsMeanMs = 0.0;
+    double solverCacheUpdateMeanMs = 0.0;
+    double solverPreparedPointsPerStep = 0.0;
+    double solverWarmStartComparisonsPerStep = 0.0;
+    double solverWarmStartMatchesPerStep = 0.0;
+    double solverVelocityPointVisitsPerStep = 0.0;
 
     double allocationsPerStep = 0.0;
     std::size_t totalAllocations = 0;

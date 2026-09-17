@@ -590,6 +590,7 @@ namespace phys
         // NARROW-PHASE: Each candidate pair gets delegated to shape-specific query.
         auto narrowPhaseStart = Clock::now();
         currentContacts.clear();
+        NarrowPhaseStats narrowPhaseDetails;
 
         for (const auto &pair : candidatePairs)
         {
@@ -612,6 +613,15 @@ namespace phys
                                               secondSlot.collider.localTransform.position),
                 bodyTransformB.orientation * secondSlot.collider.localTransform.orientation};
 
+            std::size_t shapePair = firstSlot.collider.shape.index()
+                + secondSlot.collider.shape.index();
+            if (shapePair == 0)
+                ++narrowPhaseDetails.sphereSphereCandidates;
+            else if (shapePair == 1)
+                ++narrowPhaseDetails.sphereBoxCandidates;
+            else
+                ++narrowPhaseDetails.boxBoxCandidates;
+
             ContactManifold manifold;
             if (NarrowPhase::generateContact(
                     firstSlot.collider, transformA,
@@ -631,8 +641,15 @@ namespace phys
                 manifold.friction = std::sqrt(
                     std::max(bodyA->friction, 0.0f) * std::max(bodyB->friction, 0.0f));
                 currentContacts.push_back(manifold);
+                if (shapePair == 0)
+                    ++narrowPhaseDetails.sphereSphereContacts;
+                else if (shapePair == 1)
+                    ++narrowPhaseDetails.sphereBoxContacts;
+                else
+                    ++narrowPhaseDetails.boxBoxContacts;
             }
         }
+        stats.narrowPhaseDetails = narrowPhaseDetails;
         stats.narrowPhaseMs = elapsedMs(narrowPhaseStart);
         stats.contactCount = currentContacts.size();
 

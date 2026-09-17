@@ -1057,6 +1057,43 @@ Median full-step means are effectively flat: control/reuse is 0.12/0.13 ms at
 allocation-count reduction and a steadier allocation ceiling, not a measurable
 latency improvement on this workload.
 
+## Mixed-SAP hot-subphase measurements
+
+The sustained mixed SAP workload now has behavior-neutral solver subphase
+timers and narrowphase shape-pair counters. A matching CPU-profile mode runs
+the same 5,000- and 10,000-body scenes after the normal 240-step warmup.
+Per-candidate clocks were avoided because they would perturb the narrowphase
+loop.
+
+Three 1,200-step runs identify the fixed eight velocity iterations as the
+dominant region:
+
+| Bodies | Full step | Broadphase | Narrowphase | Solver | Velocity iterations |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 5,000 | 9.14 ms | 2.16 ms | 1.92 ms | 4.97 ms | 3.8496 ms |
+| 10,000 | 19.79 ms | 5.35 ms | 3.91 ms | 10.37 ms | 7.9535 ms |
+
+The uninstrumented main medians were 9.15 and 19.72 ms, so the added counters
+and four per-step solver timers did not measurably perturb total runtime.
+
+The iterations visit about 95,863 prepared points per 5,000-body step and
+190,486 per 10,000-body step. They consume 42.1% and 40.2% of the complete
+step, respectively. Optimized source-line samples place 40.2%-42.7% of this
+iteration region on identified friction lines, versus 28.6%-31.0% on normal
+impulse lines; the remaining samples are optimized or shared loop code.
+
+Two secondary concentrations are now quantified. At 10,000 bodies, SAP's
+sweep-and-emit phase costs 3.8475 ms while record construction and initial
+record sorting cost only 0.4110 ms. Box/box pairs are 34.6% of narrowphase
+candidates but about 80% of sampled narrowphase time and produce 58.8% of all
+solver contact points.
+
+The [full measurement record](../benchmarks/results/mixed-sap-hot-subphases.txt)
+supports targeting the friction-heavy velocity loop next. A combined
+two-dimensional friction solve could avoid one repeated contact-velocity read
+and one separate body update per point, but it changes solver behavior and
+therefore requires an isolated experiment with stability and trajectory gates.
+
 ## Reproducing the Release workload
 
 Build the selected source revision in a separate directory to leave the

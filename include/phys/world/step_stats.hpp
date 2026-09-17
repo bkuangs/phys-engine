@@ -4,6 +4,28 @@
 
 namespace phys {
 
+struct NarrowPhaseStats
+{
+    std::size_t sphereSphereCandidates = 0;
+    std::size_t sphereBoxCandidates = 0;
+    std::size_t boxBoxCandidates = 0;
+    std::size_t sphereSphereContacts = 0;
+    std::size_t sphereBoxContacts = 0;
+    std::size_t boxBoxContacts = 0;
+};
+
+struct SolverStats
+{
+    double prepareMs = 0.0;
+    double warmStartMs = 0.0;
+    double velocityIterationsMs = 0.0;
+    double cacheUpdateMs = 0.0;
+    std::size_t preparedPoints = 0;
+    std::size_t warmStartComparisons = 0;
+    std::size_t warmStartMatches = 0;
+    std::size_t velocityPointVisits = 0;
+};
+
 // Per-stage timings/counts for the most recent PhysicsWorld::step() call.
 struct StepStats
 {
@@ -17,6 +39,8 @@ struct StepStats
     double broadPhaseCollectMs = 0.0;
     double broadPhaseFilterMs = 0.0;
     BroadPhaseStats broadPhaseDetails{};
+    NarrowPhaseStats narrowPhaseDetails{};
+    SolverStats solverDetails{};
 
     std::size_t possiblePairs = 0; // All live, valid collider pairs on different bodies.
     std::size_t candidatePairs = 0;

@@ -75,8 +75,16 @@ struct Totals
     double query = 0;
     double narrowphase = 0;
     double solver = 0;
+    double solverPrepare = 0;
+    double solverWarmStart = 0;
+    double solverVelocityIterations = 0;
+    double solverCacheUpdate = 0;
     double integrateVelocity = 0;
     double integratePose = 0;
+    std::size_t solverPreparedPoints = 0;
+    std::size_t solverWarmStartComparisons = 0;
+    std::size_t solverWarmStartMatches = 0;
+    std::size_t solverVelocityPointVisits = 0;
 
     void record(const phys::StepStats& stats)
     {
@@ -97,6 +105,14 @@ struct Totals
         query += stats.broadPhaseDetails.sweepMs;
         narrowphase += stats.narrowPhaseMs;
         solver += stats.solverMs;
+        solverPrepare += stats.solverDetails.prepareMs;
+        solverWarmStart += stats.solverDetails.warmStartMs;
+        solverVelocityIterations += stats.solverDetails.velocityIterationsMs;
+        solverCacheUpdate += stats.solverDetails.cacheUpdateMs;
+        solverPreparedPoints += stats.solverDetails.preparedPoints;
+        solverWarmStartComparisons += stats.solverDetails.warmStartComparisons;
+        solverWarmStartMatches += stats.solverDetails.warmStartMatches;
+        solverVelocityPointVisits += stats.solverDetails.velocityPointVisits;
         integrateVelocity += stats.integrateVelocityMs;
         integratePose += stats.integratePoseMs;
     }
@@ -107,7 +123,7 @@ struct Totals
 int main(int argc, char** argv)
 {
     if (argc < 2 || argc > 5) {
-        std::cerr << "Usage: phys_cpu_profile <spheres|boxes> [seconds=20] [--wait] [--sleep]\n";
+        std::cerr << "Usage: phys_cpu_profile <spheres|boxes|mixed5k|mixed10k> [seconds=20] [--wait] [--sleep]\n";
         return 1;
     }
     std::string_view scene = argv[1];
@@ -120,8 +136,9 @@ int main(int argc, char** argv)
             return 1;
         }
     }
-    if (scene != "spheres" && scene != "boxes") {
-        std::cerr << "Expected scene spheres/boxes\n";
+    bool mixed = scene == "mixed5k" || scene == "mixed10k";
+    if (scene != "spheres" && scene != "boxes" && !mixed) {
+        std::cerr << "Expected scene spheres, boxes, mixed5k, or mixed10k\n";
         return 1;
     }
     bool wait = false;
@@ -139,8 +156,26 @@ int main(int argc, char** argv)
     }
 
     std::vector<phys::RigidBodyHandle> handles;
-    auto world = scene == "spheres" ? phys::bench::makeSphereField(10000, 42) : makeBoxStacks(handles);
-    world.broadPhaseAlgorithm = phys::BroadPhaseAlgorithm::DynamicTree;
+    phys::PhysicsWorld world;
+    std::size_t dynamicBodies = 0;
+    if (scene == "spheres") {
+        world = phys::bench::makeSphereField(10000, 42);
+        dynamicBodies = 10000;
+    } else if (scene == "boxes") {
+        world = makeBoxStacks(handles);
+        dynamicBodies = handles.size();
+    } else {
+        int bodyCount = scene == "mixed5k" ? 5000 : 10000;
+        auto mixedScene = phys::bench::makeMixedField(bodyCount, 42);
+        handles.reserve(mixedScene.objects.size());
+        for (const auto& object : mixedScene.objects)
+            handles.push_back(object.body);
+        world = std::move(mixedScene.world);
+        dynamicBodies = handles.size();
+    }
+    world.broadPhaseAlgorithm = mixed
+        ? phys::BroadPhaseAlgorithm::SweepAndPrune
+        : phys::BroadPhaseAlgorithm::DynamicTree;
     world.setSleepingEnabled(sleeping);
     int warmup = 0;
     float warmLinear = 0;
@@ -161,11 +196,18 @@ int main(int argc, char** argv)
             return 1;
         }
     }
+    else if (mixed) {
+        for (warmup = 0; warmup < 240; ++warmup)
+            world.step(dt);
+        auto speeds = maxSpeeds(world, handles);
+        warmLinear = speeds.first;
+        warmAngular = speeds.second;
+    }
     std::size_t warmPoints = 0;
     for (const auto& contact : world.contacts())
         warmPoints += contact.pointCount;
     std::cout << "PROFILE_READY scene=" << scene
-              << " dynamic_bodies=" << (scene == "spheres" ? 10000 : 512)
+              << " dynamic_bodies=" << dynamicBodies
               << " static_bodies=" << (scene == "spheres" ? 0 : 1)
               << " warmup_steps=" << warmup
               << " max_linear_speed=" << warmLinear << " max_angular_speed=" << warmAngular
@@ -210,6 +252,14 @@ int main(int argc, char** argv)
               << "\nmean_tree_query_ms: " << totals.query / count
               << "\nmean_narrowphase_ms: " << totals.narrowphase / count
               << "\nmean_solver_ms: " << totals.solver / count
+              << "\nmean_solver_prepare_ms: " << totals.solverPrepare / count
+              << "\nmean_solver_warm_start_ms: " << totals.solverWarmStart / count
+              << "\nmean_solver_velocity_iterations_ms: " << totals.solverVelocityIterations / count
+              << "\nmean_solver_cache_update_ms: " << totals.solverCacheUpdate / count
+              << "\nmean_solver_prepared_points: " << totals.solverPreparedPoints / count
+              << "\nmean_solver_warm_start_comparisons: " << totals.solverWarmStartComparisons / count
+              << "\nmean_solver_warm_start_matches: " << totals.solverWarmStartMatches / count
+              << "\nmean_solver_velocity_point_visits: " << totals.solverVelocityPointVisits / count
               << "\nmean_integrate_velocity_ms: " << totals.integrateVelocity / count
               << "\nmean_integrate_pose_ms: " << totals.integratePose / count
               << "\nmean_contacts: " << totals.contacts / count
