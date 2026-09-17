@@ -1,0 +1,81 @@
+Warm-start body-pair index comparison
+Date:                       2026-09-17
+Branch:                     experiment/dynamic-aabb-tree
+Linear source:              db9ff26
+Indexed source:             db9ff26 + uncommitted ordered-body-pair cache lookup
+Hardware/compiler:          Apple M2, macOS, Apple Clang 17.0.0.17000604, arm64
+Change:                     Stable body-pair grouping and equal_range lookup once per manifold
+Unchanged:                  Handle generations, A/B order, anchor tolerance, first-match priority, solver order and eight iterations
+Sphere binaries:            Release -O3 -DNDEBUG; phys_collision_bench 10 tree
+Sphere samples per run:     10 through 2500 bodies; 100 at 5000; 25 at 10000; seed 42, no warmup
+Box binaries:               -O3 -DNDEBUG -g -fno-omit-frame-pointer; phys_cpu_profile boxes 5
+Box workload:               512 boxes in two-high stacks, one floor, warmed before each timed run
+Protocol:                   Three sequential/interleaved runs per version/workload; no CPU sampler during timing
+Summary:                    Median of per-run mean times, not pooled step percentiles
+Cache storage:              Existing cache vector; already ordered caches avoid stable-sort scratch allocation
+Notes:                      Sphere and box builds differ; compare versions within each workload, not across workloads.
+                            Short-run timings remain sensitive to system load.
+
+Execution order: spheres-linear-1, spheres-indexed-1, spheres-indexed-2, spheres-linear-2, spheres-linear-3, spheres-indexed-3, boxes-linear-1, boxes-indexed-1, boxes-indexed-2, boxes-linear-2, boxes-linear-3, boxes-indexed-3
+Sphere geometry/topology/allocation counts match; both box versions remain settled with 512 manifolds.
+
+Sphere summary: median of three per-run means, ms
+Bodies  Linear_step  Indexed_step  Speedup  Linear_solver  Indexed_solver
+100  0.0300  0.0300  1.00x  0.0100  0.0100
+500  0.1500  0.1600  0.94x  0.0500  0.0400
+1000  0.3600  0.3700  0.97x  0.1000  0.1000
+2500  1.1400  1.1000  1.04x  0.3000  0.2700
+5000  2.2800  2.2700  1.00x  0.1100  0.0900
+10000  4.9900  4.6200  1.08x  0.8100  0.4900
+
+Settled boxes: median of three five-second unprofiled run means, ms
+linear: step=2.7770, solver=2.5736
+indexed: step=1.7216, solver=1.5180
+
+Sphere per-run measurements
+variant,run,bodies,first,mean,p50,p95,p99,max,solver,broadphase,narrowphase,misses,samples,pairs,visits,checks,allocations,height,proxies
+linear,1,100,0.2,0.08,0.08,0.09,0.09,0.2,0.03,0.04,0.01,0,10,33,1004,83,16,8,100
+linear,1,500,0.7,0.29,0.21,0.4,0.4,0.7,0.09,0.19,0.01,0,10,179,7496,347,18,11,500
+linear,1,1000,1.33,0.71,0.75,0.84,0.84,1.33,0.2,0.46,0.03,0,10,347,18138,737,20,12,1000
+linear,1,2500,3.32,1.78,1.86,2.08,2.08,3.32,0.47,1.2,0.07,0,10,923,55448,1926,22,14,2500
+linear,1,5000,5.86,2.26,1.98,3.15,3.72,5.86,0.12,2.05,0.04,0,100,1435,123086,3164,18,15,5000
+linear,1,10000,9.31,4.93,4.11,7.24,7.53,9.31,0.79,3.91,0.12,1,25,2969,245464,6785,21,16,10000
+linear,2,100,0.07,0.03,0.03,0.04,0.04,0.07,0.01,0.02,0.0,0,10,33,1004,83,16,8,100
+linear,2,500,0.31,0.15,0.16,0.16,0.16,0.31,0.05,0.1,0.01,0,10,179,7496,347,18,11,500
+linear,2,1000,0.65,0.36,0.38,0.41,0.41,0.65,0.1,0.24,0.02,0,10,347,18138,737,20,12,1000
+linear,2,2500,1.97,1.14,1.16,1.34,1.34,1.97,0.3,0.77,0.05,0,10,923,55448,1926,22,14,2500
+linear,2,5000,4.28,2.42,2.18,3.68,5.06,7.5,0.11,2.2,0.05,0,100,1435,123086,3164,18,15,5000
+linear,2,10000,9.57,5.09,4.22,7.5,7.74,9.57,0.81,4.04,0.13,1,25,2969,245464,6785,21,16,10000
+linear,3,100,0.07,0.03,0.03,0.05,0.05,0.07,0.01,0.02,0.0,0,10,33,1004,83,16,8,100
+linear,3,500,0.33,0.15,0.16,0.16,0.16,0.33,0.04,0.1,0.01,0,10,179,7496,347,18,11,500
+linear,3,1000,0.65,0.36,0.37,0.41,0.41,0.65,0.1,0.24,0.02,0,10,347,18138,737,20,12,1000
+linear,3,2500,1.91,1.11,1.16,1.23,1.23,1.91,0.29,0.75,0.04,0,10,923,55448,1926,22,14,2500
+linear,3,5000,4.38,2.28,1.98,3.28,4.2,4.38,0.11,2.07,0.05,0,100,1435,123086,3164,18,15,5000
+linear,3,10000,9.47,4.99,4.12,7.37,7.5,9.47,0.81,3.95,0.12,1,25,2969,245464,6785,21,16,10000
+indexed,1,100,0.1,0.05,0.04,0.08,0.08,0.1,0.02,0.02,0.0,0,10,33,1004,83,16,8,100
+indexed,1,500,0.38,0.24,0.2,0.36,0.36,0.38,0.08,0.14,0.01,0,10,179,7496,347,18,11,500
+indexed,1,1000,0.76,0.46,0.46,0.59,0.59,0.76,0.12,0.31,0.02,0,10,347,18138,737,20,12,1000
+indexed,1,2500,2.26,1.34,1.31,1.38,1.38,2.26,0.29,0.95,0.06,0,10,923,55448,1926,22,14,2500
+indexed,1,5000,7.03,2.27,1.96,3.3,4.2,7.03,0.12,2.04,0.05,0,100,1435,123086,3164,18,15,5000
+indexed,1,10000,9.37,4.6,4.11,5.93,6.26,9.37,0.48,3.9,0.12,1,25,2969,245464,6785,21,16,10000
+indexed,2,100,0.07,0.03,0.03,0.04,0.04,0.07,0.01,0.01,0.0,0,10,33,1004,83,16,8,100
+indexed,2,500,0.33,0.16,0.16,0.16,0.16,0.33,0.04,0.1,0.01,0,10,179,7496,347,18,11,500
+indexed,2,1000,0.66,0.36,0.36,0.4,0.4,0.66,0.1,0.24,0.02,0,10,347,18138,737,20,12,1000
+indexed,2,2500,1.95,1.1,1.11,1.27,1.27,1.95,0.27,0.76,0.04,0,10,923,55448,1926,22,14,2500
+indexed,2,5000,4.33,2.27,1.96,3.17,6.09,6.19,0.09,2.07,0.04,0,100,1435,123086,3164,18,15,5000
+indexed,2,10000,9.4,4.67,4.15,5.89,6.28,9.4,0.49,3.94,0.12,1,25,2969,245464,6785,21,16,10000
+indexed,3,100,0.07,0.03,0.03,0.04,0.04,0.07,0.01,0.01,0.0,0,10,33,1004,83,16,8,100
+indexed,3,500,0.31,0.15,0.16,0.18,0.18,0.31,0.04,0.1,0.01,0,10,179,7496,347,18,11,500
+indexed,3,1000,0.65,0.37,0.36,0.44,0.44,0.65,0.1,0.24,0.02,0,10,347,18138,737,20,12,1000
+indexed,3,2500,1.91,1.08,1.09,1.17,1.17,1.91,0.26,0.75,0.04,0,10,923,55448,1926,22,14,2500
+indexed,3,5000,4.3,2.17,1.95,2.91,3.08,4.3,0.09,1.99,0.04,0,100,1435,123086,3164,18,15,5000
+indexed,3,10000,9.41,4.62,4.06,5.85,6.29,9.41,0.49,3.9,0.12,1,25,2969,245464,6785,21,16,10000
+
+Box per-run measurements
+variant,run,mean,solver,broadphase,narrowphase,steps,wall_seconds,final_linear,final_angular
+linear,1,2.7634,2.5618,0.0327,0.1608,1810.0,5.0021,0.0,0.0
+linear,2,2.777,2.5736,0.0331,0.1622,1801.0,5.0017,0.0,0.0
+linear,3,2.7907,2.5861,0.0335,0.163,1792.0,5.0013,0.0,0.0
+indexed,1,1.7257,1.5202,0.0337,0.1635,2898.0,5.0014,0.0,0.0
+indexed,2,1.7216,1.518,0.0331,0.1623,2905.0,5.0016,0.0,0.0
+indexed,3,1.7173,1.5139,0.0331,0.1621,2912.0,5.0013,0.0,0.0

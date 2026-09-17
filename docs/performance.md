@@ -523,7 +523,7 @@ Raw results are retained in the
 ## CPU sampling
 
 The rejected-experiment findings were committed as `118e337` before sampling.
-The engine code is still the uncached tree implementation from `ddfc6a5`.
+At this capture, the engine used the uncached tree implementation from `ddfc6a5`.
 Sampling was captured on September 17, 2026, using macOS `/usr/bin/sample`;
 Instruments' `xctrace` CLI was unavailable.
 
@@ -584,11 +584,12 @@ Box steps averaged 2.9137 ms, with 2.6992 ms of solving and only 0.0237 ms of
 tree traversal. These are instrumented diagnostic runs, not a new A/B speedup
 claim or a comparison of equivalent workloads.
 
-The clearest next small optimization is **indexing the warm-start cache by
+These samples identified **indexing the warm-start cache by
 ordered body pair**, retaining the existing local-anchor matching and solver
-processing order. The current implementation scans the entire previous cache
-for each contact point. Samples directly identify that loop as substantial work,
-especially for the 2,048-point resting-contact workload.
+processing order, as the clearest next small optimization. The implementation
+then scanned the entire previous cache for each contact point. That loop was
+substantial work, especially for the 2,048-point resting-contact workload.
+The subsequent indexing change and its measurements are described below.
 
 **Sleeping/awake islands** are a separate, larger opportunity: the box scene
 keeps spending almost all its CPU time solving contacts despite negligible
@@ -631,6 +632,81 @@ and the launcher waits for both child processes to exit or terminates its own
 children on failure. It does not sample unrelated processes.
 The driver can also run directly as `phys_cpu_profile spheres 20` or
 `phys_cpu_profile boxes 20`, without the sampler.
+
+## Warm-start body-pair indexing
+
+CPU sampling motivated a targeted change to the solver, rather than a new solver
+algorithm. Previous cache entries are kept in ordered-body-pair groups. A
+manifold uses `std::equal_range` to locate its group once, then its points scan
+only that group's cached anchors.
+
+The key includes both body indices and generations, and preserves A/B direction.
+Only the private cache is reordered; live manifolds and the eight solver
+iterations retain their original order. Stable sorting preserves the first
+matching anchor within a pair, not just the nearest or first exact match.
+An `is_sorted` fast path avoids stable-sort work and temporary allocation when
+the newly generated cache is already ordered.
+
+For M cached points and P current manifolds, lookup no longer scans all M
+entries for every current point. It does roughly P binary range lookups plus
+the anchor checks within each matching body pair. Cache ordering costs a
+linear sortedness check in the common case, or a stable sort otherwise.
+Groups can still be large when many colliders share the same body pair.
+
+### Full-step comparison
+
+The [comparison report](../benchmark-results-warmstart-index.txt) records three
+interleaved runs per version against executables preserved from `db9ff26`.
+No CPU sampler ran during these timing comparisons.
+
+| Workload | Before: full step | Indexed: full step | Before: solver | Indexed: solver |
+| --- | ---: | ---: | ---: | ---: |
+| 10,000 moving spheres | 4.99 ms | 4.62 ms | 0.81 ms | 0.49 ms |
+| 512 settled boxes | 2.7770 ms | 1.7216 ms | 2.5736 ms | 1.5180 ms |
+
+These are medians of per-run means. The sphere runs use the existing Release
+benchmark, seed 42, argument `10`, and include cold starts. The box runs use
+three five-second intervals after warmup, with the same optimized/symbolized
+driver on both sides. The two workloads use different build flags, so compare
+versions within each row rather than comparing rows.
+
+The settled-box full step improved by about **38%**, with solver time down
+about **41%**. The 10,000-sphere step improved by about **7.4%**, with solver
+time down about **39.5%**. Smaller sphere cases were mostly flat or noisy.
+
+Sphere pair counts, tree traversal counts, heights, and allocation counts
+matched the baseline. Both box versions remained settled with exactly 512
+manifolds and no tree reinsertions. These common workloads needed no cache
+reordering allocation; less orderly body/collider mappings can require
+`stable_sort` scratch space.
+
+### Sampling after the change
+
+New 15-second captures use the same profiling protocol:
+
+- [Indexed sphere call graph](../profiling-results/cpu-warmstart-index/cpu-tree-spheres.sample.txt)
+  and [run summary](../profiling-results/cpu-warmstart-index/cpu-tree-spheres.run.txt).
+- [Indexed box call graph](../profiling-results/cpu-warmstart-index/cpu-tree-boxes.sample.txt)
+  and [run summary](../profiling-results/cpu-warmstart-index/cpu-tree-boxes.run.txt).
+
+The old linear cache-scan hotspot disappeared. In the box capture, the new
+binary-search callsite accounts for roughly 0.9% of self samples, with additional
+small costs in matching and optimized helpers. Most remaining solver samples
+are in impulse/friction work. Source-line attribution is approximate and is
+not a complete accounting of every inlined cache operation.
+
+The solver still occupies about 88% of box CPU samples, but that fraction is
+of a much faster step: the sampled driver mean fell from 2.9137 to 1.7951 ms.
+The unprofiled paired measurements above are the primary speed comparison.
+Raw sample line numbers refer to their captured revisions.
+
+Regression coverage explicitly exercises interleaved and reversed body pairs,
+near-anchor first-match priority ahead of a later exact match, and generation
+changes when either body slot is reused. The previous restitution, friction,
+angular-response, floor, and world/backend checks continue to pass.
+
+**This optimization is retained.** It changes neither the iteration budget
+nor the physical matching rules, and directly removes the sampled search work.
 
 ## Reproducing the Release workload
 

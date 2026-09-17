@@ -273,6 +273,87 @@ namespace
         return true;
     }
 
+    bool testWarmStartPairIdentityAndStableMatching()
+    {
+        phys::RigidBody staticBody;
+        phys::RigidBody dynamicBody;
+        std::string error;
+        if (!phys::RigidBody::createBox(1, 1, 1, {}, 1, true, 0, 0, staticBody, error)
+            || !phys::RigidBody::createBox(1, 1, 1, {}, 1, false, 0, 0, dynamicBody, error))
+        {
+            std::cerr << "warm-start test setup failed: " << error << '\n';
+            return false;
+        }
+        phys::PhysicsWorld world;
+        auto bodyA = world.addBody(staticBody);
+        auto bodyB = world.addBody(dynamicBody);
+        auto bodyC = world.addBody(staticBody);
+        world.getBody(bodyB)->isStatic = true;
+
+        // Static participants retain the seeded impulses without applying them.
+        // Interleaved/reversed pairs and near-duplicate anchors exercise cache matching.
+        std::vector<phys::ContactManifold> seed;
+        for (int index = 0; index < 64; ++index)
+        {
+            phys::ContactManifold contact{};
+            contact.bodyA = index == 2 ? bodyB : bodyA;
+            contact.bodyB = index == 2 ? bodyA : (index % 2 == 0 && index > 3 ? bodyC : bodyB);
+            contact.normal = {0, 1, 0};
+            contact.pointCount = 1;
+            contact.points[0].normalImpulse = index == 3 ? 1.0f : 2.0f;
+            if (index == 3)
+            {
+                contact.points[0].localAnchorA = {0.01f, 0, 0};
+                contact.points[0].localAnchorB = {-0.01f, 0, 0};
+            }
+            if (index == 0)
+                contact.points[0].localAnchorA = {1, 0, 0};
+            if (index == 1)
+                contact.points[0].localAnchorB = {1, 0, 0};
+            if (index == 2)
+                contact.points[0].normalImpulse = 9.0f;
+            seed.push_back(contact);
+        }
+        phys::SequentialImpulseSolver::solve(seed, world, 1.0f / 60.0f);
+
+        for (int phase = 0; phase < 3; ++phase)
+        {
+            if (phase != 0)
+            {
+                auto old = phase == 1 ? bodyB : bodyA;
+                world.removeBody(old);
+                auto replacement = world.addBody(phase == 1 ? dynamicBody : staticBody);
+                if (replacement.index != old.index || replacement.generation == old.generation)
+                {
+                    std::cerr << "warm-start test did not reuse the requested body slot\n";
+                    return false;
+                }
+                if (phase == 1)
+                    bodyB = replacement;
+                else
+                    bodyA = replacement;
+            }
+            world.getBody(bodyB)->isStatic = false;
+            world.getBody(bodyB)->setLinearVelocity({0, -4, 0});
+            phys::ContactManifold contact{};
+            contact.bodyA = bodyA;
+            contact.bodyB = bodyB;
+            contact.normal = {0, 1, 0};
+            contact.pointCount = 2;
+            std::vector<phys::ContactManifold> contacts{contact};
+            phys::SequentialImpulseSolver::solve(contacts, world, 1.0f / 60.0f);
+            if (!near(contacts[0].points[0].normalImpulse, phase == 0 ? 3.0f : 4.0f)
+                || !near(contacts[0].points[1].normalImpulse, phase == 0 ? 1.0f : 0.0f)
+                || !near(world.getBody(bodyB)->getLinearVelocity().y, 0.0f))
+            {
+                std::cerr << "warm-start matching changed order, anchors, or handle identity in phase "
+                          << phase << '\n';
+                return false;
+            }
+        }
+        return true;
+    }
+
 }
 
 int main()
@@ -280,6 +361,7 @@ int main()
     return testOffCenterContactProducesAngularVelocity() && testRestitutionUsesIncomingVelocity()
         && testFrictionConstrainsTangentialVelocity() && testWorldCombinesMaterialFriction()
         && testBoxLandsOnStaticFloor()
+        && testWarmStartPairIdentityAndStableMatching()
         && testTiltedBoxSettlesFlat(1.0f / 60.0f, 0.3f, {0.0f, 0.0f, 1.0f})
         && testTiltedBoxSettlesFlat(1.0f / 120.0f, -0.6f, {1.0f, 0.0f, 0.0f})
         && testTiltedBoxSettlesFlat(1.0f / 60.0f, 0.5f,

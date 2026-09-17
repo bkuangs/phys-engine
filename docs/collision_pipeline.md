@@ -172,6 +172,14 @@ reconstruct contact offsets and maintains a heuristic persistent cache of
 normal and tangent impulses for warm starting. Cache matching currently uses
 body handles and local-anchor proximity rather than stable feature IDs.
 
+The cache is grouped by ordered `(bodyA, bodyB)` handles, including both
+generations. Each manifold locates its range with `std::equal_range`, then its
+points apply the existing anchor-distance test only within that range.
+The next cache is stably sorted by this key when necessary; already ordered
+caches skip sorting. Stable within-pair order preserves the original first-match
+priority, even when a later point is closer. A/B direction is not canonicalized.
+Live manifolds, constraint iterations, and impulse application order are unchanged.
+
 Collision detection produces geometry. It must not mutate body velocities or
 perform ad hoc reflection.
 

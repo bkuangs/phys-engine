@@ -64,6 +64,7 @@ One "sweep" means visiting every constraint once: 100 contacts x 10 sweeps = 1,0
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <tuple>
 #include <utility>
 
 namespace phys
@@ -214,12 +215,18 @@ namespace phys
 		// Restore impulses from the previous step before the iterative solve.
 		// Local anchors provide a stable contact identity while body handles
 		// distinguish contacts belonging to different body pairs.
+		auto cachePairLess = [](const auto &left, const auto &right) {
+			return std::tie(left.bodyA.index, left.bodyA.generation, left.bodyB.index, left.bodyB.generation)
+				< std::tie(right.bodyA.index, right.bodyA.generation, right.bodyB.index, right.bodyB.generation);
+		};
 		constexpr float cacheMatchDistanceSquared = 0.05f * 0.05f;
 		for (PreparedManifold &prepared : preparedContacts)
 		{
 			ContactManifold &manifold = *prepared.manifold;
 			RigidBody *bodyA = prepared.bodyA;
 			RigidBody *bodyB = prepared.bodyB;
+			const auto cachedRange = std::equal_range(
+				world.cachedContacts.begin(), world.cachedContacts.end(), manifold, cachePairLess);
 			for (uint32_t index = 0; index < manifold.pointCount; ++index)
 			{
 				ContactPoint &point = manifold.points[index];
@@ -227,9 +234,10 @@ namespace phys
 				if (preparedPoint.inverseEffectiveMass <= 0.0f)
 					continue;
 
-				for (const PhysicsWorld::CachedContact &cached : world.cachedContacts)
+				for (auto cachedPoint = cachedRange.first; cachedPoint != cachedRange.second; ++cachedPoint)
 				{
-					if (!(cached.bodyA == manifold.bodyA && cached.bodyB == manifold.bodyB) || distanceSquared(cached.localAnchorA, point.localAnchorA) > cacheMatchDistanceSquared || distanceSquared(cached.localAnchorB, point.localAnchorB) > cacheMatchDistanceSquared)
+					const PhysicsWorld::CachedContact &cached = *cachedPoint;
+					if (distanceSquared(cached.localAnchorA, point.localAnchorA) > cacheMatchDistanceSquared || distanceSquared(cached.localAnchorB, point.localAnchorB) > cacheMatchDistanceSquared)
 						continue;
 
 					point.normalImpulse = std::max(cached.normalImpulse, 0.0f);
@@ -342,6 +350,9 @@ namespace phys
 									 point.tangentImpulse2});
 			}
 		}
+		// Keep the first-match order within each pair; never reorder the live solve.
+		if (!std::is_sorted(nextCache.begin(), nextCache.end(), cachePairLess))
+			std::stable_sort(nextCache.begin(), nextCache.end(), cachePairLess);
 		world.cachedContacts = std::move(nextCache);
 	}
 

@@ -1,0 +1,27 @@
+pid: 20610
+sample_seconds: 15
+sample_interval_ms: 1
+PROFILE_READY scene=boxes dynamic_bodies=512 static_bodies=1 warmup_steps=240 max_linear_speed=1.31501e-08 max_angular_speed=1.41104e-08 contacts=512 contact_points=2048
+scene: boxes
+steps: 11141
+batches: 1
+wall_seconds: 20.0009
+mean_step_ms: 1.7951
+mean_broadphase_ms: 0.0349
+mean_tree_maintenance_ms: 0.0054
+mean_tree_query_ms: 0.0238
+mean_narrowphase_ms: 0.1688
+mean_solver_ms: 1.5825
+mean_integrate_velocity_ms: 0.0008
+mean_integrate_pose_ms: 0.0019
+mean_contacts: 512.0000
+min_contacts: 512
+max_contacts: 512
+reinsertions: 0
+final_max_linear_speed: 0.0000
+final_max_angular_speed: 0.0000
+
+Sampler output:
+Sampling process 20610 for 15 seconds with 1 millisecond of run time between samples
+Sampling completed, processing symbols...
+Sample analysis of process 20610 written to file /Users/bkuang/dev/phys-engine/profiling-results/cpu-warmstart-index/cpu-tree-boxes.sample.txt

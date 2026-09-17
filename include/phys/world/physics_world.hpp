@@ -92,7 +92,7 @@ namespace phys
         DynamicAabbTree dynamicTree;
         std::vector<uint32_t> freeColliderList;
         std::vector<ContactManifold> currentContacts;
-        std::vector<CachedContact> cachedContacts;
+        std::vector<CachedContact> cachedContacts; // Sorted by ordered body handles; stable within each pair.
         StepStats stats;
     };
 
