@@ -20,8 +20,3 @@ max_contacts: 512
 reinsertions: 0
 final_max_linear_speed: 0.0000
 final_max_angular_speed: 0.0000
-
-Sampler output:
-Sampling process 20610 for 15 seconds with 1 millisecond of run time between samples
-Sampling completed, processing symbols...
-Sample analysis of process 20610 written to file /Users/bkuang/dev/phys-engine/profiling-results/cpu-warmstart-index/cpu-tree-boxes.sample.txt

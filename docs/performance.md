@@ -347,18 +347,14 @@ root/root. Within-subtree and cross-subtree work partition the unordered
 leaf pairs; overlapping distinct subtrees are split by area. This avoids
 repeated ancestor traversal without duplicating emitted pairs.
 
-The progression is recorded in the
-[initial full-world report](../benchmark-results-tree-initial-release.txt),
-[initial layouts](../benchmark-results-tree-initial-layouts-release.txt),
-[spatial-rotation report](../benchmark-results-tree-spatial-release.txt), and
-[spatial-rotation layouts](../benchmark-results-tree-spatial-layouts-release.txt).
-These are separate experimental batches, not an interleaved comparison of
-all three tree implementations. The final batch below contains fresh SAP
+These were separate experimental batches, not an interleaved comparison of all
+three tree implementations. Their useful results are summarized here; the
+superseded raw reports were removed. The final batch below contains fresh SAP
 and grid controls.
 
 ### Full-world results, including maintenance
 
-The [final full-world report](../benchmark-results-tree-release.txt) uses
+The [final full-world report](../benchmarks/results/tree-release.txt) uses
 three interleaved runs per backend, seed 42, argument `10`, and the same Release
 configuration. Each run starts with a fresh world and empty tree. Initial
 construction is included in the first step and in the reported means.
@@ -394,7 +390,7 @@ reinsertions; maintenance was not omitted from the measurements.
 
 ### Moving and mixed-size layouts
 
-The [final layout report](../benchmark-results-tree-layouts-release.txt)
+The [final layout report](../benchmarks/results/tree-layouts-release.txt)
 compares static and moving/resizing AABBs. It times initial construction,
 incremental maintenance, and querying together. Motion and reference-pair
 generation are outside timing for all backends. Each tree persists across
@@ -465,11 +461,8 @@ full-width user indices, and invalid high-bit proxy IDs is retained.
 experiments do not establish node footprint as the main limiting factor, and
 short-run differences on a shared machine should not be overstated.
 
-The measurements are retained in the
-[hot/cold world report](../benchmark-results-tree-hotcold-release.txt),
-[hot/cold layout report](../benchmark-results-tree-hotcold-layouts-release.txt),
-[inline world report](../benchmark-results-tree-compact-release.txt), and
-[inline layout report](../benchmark-results-tree-compact-layouts-release.txt).
+The rejected trial outputs were removed after recording the methodology and
+results above.
 
 ## Surface-area caching trials (not adopted)
 
@@ -514,11 +507,8 @@ The original uncached implementation was restored exactly to `ddfc6a5`.
 A CPU sampling profile is a better next investigation than another speculative
 layout or cache change.
 
-Raw results are retained in the
-[eager full-world report](../benchmark-results-tree-area-cache-eager-release.txt),
-[eager layout report](../benchmark-results-tree-area-cache-eager-layouts-release.txt),
-[guarded full-world report](../benchmark-results-tree-area-cache-release.txt), and
-[guarded layout report](../benchmark-results-tree-area-cache-layouts-release.txt).
+The rejected trial outputs were removed after recording the methodology and
+results above.
 
 ## CPU sampling
 
@@ -555,12 +545,11 @@ performed zero tree reinsertions, and remained below the velocity thresholds.
 An initial eight-high fixture did not settle under the existing solver settings
 and was excluded; no solver tuning was used to force a settled profile.
 
-Raw samples and driver logs:
-
-- [Sphere call graph](../profiling-results/cpu-sampling/cpu-tree-spheres.sample.txt)
-  and [run summary](../profiling-results/cpu-sampling/cpu-tree-spheres.run.txt).
-- [Box call graph](../profiling-results/cpu-sampling/cpu-tree-boxes.sample.txt)
-  and [run summary](../profiling-results/cpu-sampling/cpu-tree-boxes.run.txt).
+Driver logs are retained for the
+[sphere](../benchmarks/results/profiling/cpu-tree-spheres.run.txt) and
+[box](../benchmarks/results/profiling/cpu-tree-boxes.run.txt) workloads. The
+large machine-specific call-graph dumps were removed after summarizing them
+below.
 
 ### What the samples show
 
@@ -655,7 +644,7 @@ Groups can still be large when many colliders share the same body pair.
 
 ### Full-step comparison
 
-The [comparison report](../benchmark-results-warmstart-index.txt) records three
+The [comparison report](../benchmarks/results/warmstart-index.txt) records three
 interleaved runs per version against executables preserved from `db9ff26`.
 No CPU sampler ran during these timing comparisons.
 
@@ -682,12 +671,11 @@ reordering allocation; less orderly body/collider mappings can require
 
 ### Sampling after the change
 
-New 15-second captures use the same profiling protocol:
-
-- [Indexed sphere call graph](../profiling-results/cpu-warmstart-index/cpu-tree-spheres.sample.txt)
-  and [run summary](../profiling-results/cpu-warmstart-index/cpu-tree-spheres.run.txt).
-- [Indexed box call graph](../profiling-results/cpu-warmstart-index/cpu-tree-boxes.sample.txt)
-  and [run summary](../profiling-results/cpu-warmstart-index/cpu-tree-boxes.run.txt).
+New 15-second captures use the same profiling protocol. The retained
+[sphere](../benchmarks/results/profiling/cpu-warmstart-index-spheres.run.txt)
+and [box](../benchmarks/results/profiling/cpu-warmstart-index-boxes.run.txt)
+driver logs record the workloads; the machine-specific call graphs were removed
+after analysis.
 
 The old linear cache-scan hotspot disappeared. In the box capture, the new
 binary-search callsite accounts for roughly 0.9% of self samples, with additional

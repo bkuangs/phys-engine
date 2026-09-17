@@ -18,8 +18,3 @@ mean_contacts: 702.2385
 min_contacts: 99
 max_contacts: 2631
 reinsertions: 4846607
-
-Sampler output:
-Sampling process 81877 for 15 seconds with 1 millisecond of run time between samples
-Sampling completed, processing symbols...
-Sample analysis of process 81877 written to file /Users/bkuang/dev/phys-engine/profiling-results/cpu-sampling/cpu-tree-spheres.sample.txt

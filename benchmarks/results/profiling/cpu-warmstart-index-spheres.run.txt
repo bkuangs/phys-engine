@@ -18,8 +18,3 @@ mean_contacts: 704.5466
 min_contacts: 99
 max_contacts: 2631
 reinsertions: 5151787
-
-Sampler output:
-Sampling process 20377 for 15 seconds with 1 millisecond of run time between samples
-Sampling completed, processing symbols...
-Sample analysis of process 20377 written to file /Users/bkuang/dev/phys-engine/profiling-results/cpu-warmstart-index/cpu-tree-spheres.sample.txt

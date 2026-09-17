@@ -73,4 +73,4 @@ See [architecture](docs/architecture.md),
 | V1 | Spheres, AABBs, sphere-sphere contacts, basic impulse response |
 | V2 | Oriented boxes, SAT, angular dynamics, inertia, friction, multi-point manifolds |
 | V3 | Improved broad phase, sequential impulses, stable stacking, instrumentation |
-| V4 | Choose a differentiator: GJK + EPA, continuous collision detection, or a dynamic AABB tree |
+| V4 | Evaluate continuous collision detection and other differentiators; GJK + EPA and an experimental dynamic AABB tree are implemented |

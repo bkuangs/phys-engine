@@ -20,8 +20,3 @@ max_contacts: 512
 reinsertions: 0
 final_max_linear_speed: 0.0000
 final_max_angular_speed: 0.0000
-
-Sampler output:
-Sampling process 82133 for 15 seconds with 1 millisecond of run time between samples
-Sampling completed, processing symbols...
-Sample analysis of process 82133 written to file /Users/bkuang/dev/phys-engine/profiling-results/cpu-sampling/cpu-tree-boxes.sample.txt
