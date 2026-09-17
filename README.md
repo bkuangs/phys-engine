@@ -19,6 +19,17 @@ cmake --build build/release-bench --target phys_collision_bench -j 4
 ./build/release-bench/phys_collision_bench
 ```
 
+## Sleeping and Waking
+
+Sleeping is opt-in and works with all three broadphase backends:
+
+```cpp
+world.setSleepingEnabled(true);
+if (auto *body = world.getBody(handle)) {
+    bool sleeping = body->isSleeping();
+    body->applyLinearImpulse({1, 0, 0});     // Automatically wakes the body.
+}
+
 ## Pipeline
 
 ```text
