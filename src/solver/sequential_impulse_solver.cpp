@@ -183,6 +183,14 @@ namespace phys
 			body->linearVelocity += impulse * prepared.inverseMass;
 			body->angularVelocity += angularResponse * magnitude;
 		};
+		auto applyTangentImpulse = [](const PreparedBody &prepared, const Vec3 &impulse,
+									  const Vec3 &angularResponse) {
+			RigidBody *body = prepared.body;
+			if (body->isStatic)
+				return;
+			body->linearVelocity += impulse * prepared.inverseMass;
+			body->angularVelocity += angularResponse;
+		};
 
 		for (ContactManifold &manifold : contacts)
 		{
@@ -245,7 +253,7 @@ namespace phys
 					preparedPoint.offsetB, preparedPoint.tangent1);
 				preparedPoint.tangentResponseA1 = prepared.bodyA->inverseInertiaWorld * tangentAngularJacobianA;
 				preparedPoint.tangentResponseB1 = prepared.bodyB->inverseInertiaWorld * tangentAngularJacobianB;
-				preparedPoint.inverseTangentMass1 = prepared.bodyA->inverseMass + prepared.bodyB->inverseMass + dot(tangentAngularJacobianA, preparedPoint.tangentResponseA1) + dot(tangentAngularJacobianB, preparedPoint.tangentResponseB1);
+				float tangentMass00 = prepared.bodyA->inverseMass + prepared.bodyB->inverseMass + dot(tangentAngularJacobianA, preparedPoint.tangentResponseA1) + dot(tangentAngularJacobianB, preparedPoint.tangentResponseB1);
 
 				tangentAngularJacobianA = Math3d::cross(
 					preparedPoint.offsetA, preparedPoint.tangent2);
@@ -253,7 +261,25 @@ namespace phys
 					preparedPoint.offsetB, preparedPoint.tangent2);
 				preparedPoint.tangentResponseA2 = prepared.bodyA->inverseInertiaWorld * tangentAngularJacobianA;
 				preparedPoint.tangentResponseB2 = prepared.bodyB->inverseInertiaWorld * tangentAngularJacobianB;
-				preparedPoint.inverseTangentMass2 = prepared.bodyA->inverseMass + prepared.bodyB->inverseMass + dot(tangentAngularJacobianA, preparedPoint.tangentResponseA2) + dot(tangentAngularJacobianB, preparedPoint.tangentResponseB2);
+				float tangentMass11 = prepared.bodyA->inverseMass + prepared.bodyB->inverseMass + dot(tangentAngularJacobianA, preparedPoint.tangentResponseA2) + dot(tangentAngularJacobianB, preparedPoint.tangentResponseB2);
+				float tangentMass01 =
+					dot(tangentAngularJacobianA, preparedPoint.tangentResponseA1)
+					+ dot(tangentAngularJacobianB, preparedPoint.tangentResponseB1);
+				float tangentDeterminant =
+					tangentMass00 * tangentMass11 - tangentMass01 * tangentMass01;
+				if (tangentDeterminant > 0.0f)
+				{
+					float inverseTangentDeterminant = 1.0f / tangentDeterminant;
+					preparedPoint.inverseTangentMass00 = tangentMass11 * inverseTangentDeterminant;
+					preparedPoint.inverseTangentMass01 = -tangentMass01 * inverseTangentDeterminant;
+					preparedPoint.inverseTangentMass11 = tangentMass00 * inverseTangentDeterminant;
+				}
+				else
+				{
+					preparedPoint.inverseTangentMass00 = 0.0f;
+					preparedPoint.inverseTangentMass01 = 0.0f;
+					preparedPoint.inverseTangentMass11 = 0.0f;
+				}
 				if (preparedPoint.inverseEffectiveMass <= 0.0f)
 					continue;
 				++preparedPointCount;
@@ -301,10 +327,14 @@ namespace phys
 
 					point.normalImpulse = std::max(cached.normalImpulse, 0.0f);
 					float tangentLimit = std::max(manifold.friction, 0.0f) * point.normalImpulse;
-					point.tangentImpulse1 = Math3d::clamp(
-						cached.tangentImpulse1, -tangentLimit, tangentLimit);
-					point.tangentImpulse2 = Math3d::clamp(
-						cached.tangentImpulse2, -tangentLimit, tangentLimit);
+					float tangentLengthSquared =
+						cached.tangentImpulse1 * cached.tangentImpulse1
+						+ cached.tangentImpulse2 * cached.tangentImpulse2;
+					float tangentScale = tangentLengthSquared > tangentLimit * tangentLimit
+						? tangentLimit / std::sqrt(tangentLengthSquared)
+						: 1.0f;
+					point.tangentImpulse1 = cached.tangentImpulse1 * tangentScale;
+					point.tangentImpulse2 = cached.tangentImpulse2 * tangentScale;
 					Vec3 warmImpulse = manifold.normal * point.normalImpulse + preparedPoint.tangent1 * point.tangentImpulse1 + preparedPoint.tangent2 * point.tangentImpulse2;
 					applyCachedImpulse(*prepared.bodyA, -warmImpulse, preparedPoint.offsetA);
 					applyCachedImpulse(*prepared.bodyB, warmImpulse, preparedPoint.offsetB);
@@ -357,42 +387,53 @@ namespace phys
 					applyAxisImpulse(*prepared.bodyA, -impulse, preparedPoint.normalResponseA, -appliedImpulse);
 					applyAxisImpulse(*prepared.bodyB, impulse, preparedPoint.normalResponseB, appliedImpulse);
 
-					if (preparedPoint.inverseTangentMass1 <= 0.0f || preparedPoint.inverseTangentMass2 <= 0.0f)
+					if (preparedPoint.inverseTangentMass00 <= 0.0f
+						|| preparedPoint.inverseTangentMass11 <= 0.0f)
 						continue;
 
-					// Friction uses the current contact normal impulse as its limit.
-					// Each tangent is solved independently against the Coulomb box.
+					// Solve both tangent axes from one post-normal relative velocity,
+					// then project the accumulated impulse onto the Coulomb disk.
 					float tangentLimit = std::max(manifold.friction, 0.0f) * point.normalImpulse;
 					velocityA = bodyA->getLinearVelocity() + Math3d::cross(bodyA->getAngularVelocity(), offsetA);
 					velocityB = bodyB->getLinearVelocity() + Math3d::cross(bodyB->getAngularVelocity(), offsetB);
 					Vec3 relativeVelocity = velocityB - velocityA;
-
 					float tangentVelocity1 = dot(
 						relativeVelocity, preparedPoint.tangent1);
-					float tangentImpulseDelta1 = -tangentVelocity1 / preparedPoint.inverseTangentMass1;
-					float previousTangentImpulse1 = point.tangentImpulse1;
-					point.tangentImpulse1 = Math3d::clamp(
-						previousTangentImpulse1 + tangentImpulseDelta1,
-						-tangentLimit, tangentLimit);
-					float appliedTangentImpulse1 = point.tangentImpulse1 - previousTangentImpulse1;
-					Vec3 tangentImpulse = preparedPoint.tangent1 * appliedTangentImpulse1;
-					applyAxisImpulse(*prepared.bodyA, -tangentImpulse, preparedPoint.tangentResponseA1, -appliedTangentImpulse1);
-					applyAxisImpulse(*prepared.bodyB, tangentImpulse, preparedPoint.tangentResponseB1, appliedTangentImpulse1);
-
-					velocityA = bodyA->getLinearVelocity() + Math3d::cross(bodyA->getAngularVelocity(), offsetA);
-					velocityB = bodyB->getLinearVelocity() + Math3d::cross(bodyB->getAngularVelocity(), offsetB);
-					relativeVelocity = velocityB - velocityA;
 					float tangentVelocity2 = dot(
 						relativeVelocity, preparedPoint.tangent2);
-					float tangentImpulseDelta2 = -tangentVelocity2 / preparedPoint.inverseTangentMass2;
+					float tangentImpulseDelta1 = -(
+						preparedPoint.inverseTangentMass00 * tangentVelocity1
+						+ preparedPoint.inverseTangentMass01 * tangentVelocity2);
+					float tangentImpulseDelta2 = -(
+						preparedPoint.inverseTangentMass01 * tangentVelocity1
+						+ preparedPoint.inverseTangentMass11 * tangentVelocity2);
+					float previousTangentImpulse1 = point.tangentImpulse1;
 					float previousTangentImpulse2 = point.tangentImpulse2;
-					point.tangentImpulse2 = Math3d::clamp(
-						previousTangentImpulse2 + tangentImpulseDelta2,
-						-tangentLimit, tangentLimit);
+					point.tangentImpulse1 += tangentImpulseDelta1;
+					point.tangentImpulse2 += tangentImpulseDelta2;
+					float tangentLengthSquared =
+						point.tangentImpulse1 * point.tangentImpulse1
+						+ point.tangentImpulse2 * point.tangentImpulse2;
+					if (tangentLengthSquared > tangentLimit * tangentLimit)
+					{
+						float scale = tangentLimit / std::sqrt(tangentLengthSquared);
+						point.tangentImpulse1 *= scale;
+						point.tangentImpulse2 *= scale;
+					}
+					float appliedTangentImpulse1 =
+						point.tangentImpulse1 - previousTangentImpulse1;
 					float appliedTangentImpulse2 = point.tangentImpulse2 - previousTangentImpulse2;
-					tangentImpulse = preparedPoint.tangent2 * appliedTangentImpulse2;
-					applyAxisImpulse(*prepared.bodyA, -tangentImpulse, preparedPoint.tangentResponseA2, -appliedTangentImpulse2);
-					applyAxisImpulse(*prepared.bodyB, tangentImpulse, preparedPoint.tangentResponseB2, appliedTangentImpulse2);
+					Vec3 tangentImpulse =
+						preparedPoint.tangent1 * appliedTangentImpulse1
+						+ preparedPoint.tangent2 * appliedTangentImpulse2;
+					Vec3 angularResponseA =
+						preparedPoint.tangentResponseA1 * appliedTangentImpulse1
+						+ preparedPoint.tangentResponseA2 * appliedTangentImpulse2;
+					Vec3 angularResponseB =
+						preparedPoint.tangentResponseB1 * appliedTangentImpulse1
+						+ preparedPoint.tangentResponseB2 * appliedTangentImpulse2;
+					applyTangentImpulse(*prepared.bodyA, -tangentImpulse, -angularResponseA);
+					applyTangentImpulse(*prepared.bodyB, tangentImpulse, angularResponseB);
 				}
 			}
 		}

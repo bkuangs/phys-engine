@@ -61,8 +61,9 @@ struct PreparedContactPoint
     Vec3 tangentResponseA2{};
     Vec3 tangentResponseB2{};
     float inverseEffectiveMass = 0.0f;
-    float inverseTangentMass1 = 0.0f;
-    float inverseTangentMass2 = 0.0f;
+    float inverseTangentMass00 = 0.0f;
+    float inverseTangentMass01 = 0.0f;
+    float inverseTangentMass11 = 0.0f;
     float bias = 0.0f;
     float restitutionVelocity = 0.0f;
 };

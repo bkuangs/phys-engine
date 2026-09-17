@@ -1094,6 +1094,34 @@ two-dimensional friction solve could avoid one repeated contact-velocity read
 and one separate body update per point, but it changes solver behavior and
 therefore requires an isolated experiment with stability and trajectory gates.
 
+## Coupled two-dimensional friction
+
+The follow-up experiment replaces sequential, independently clamped tangent
+axes with a coupled 2x2 tangent solve and a circular Coulomb limit. Each
+contact point now computes one post-normal relative velocity and applies one
+combined tangent impulse. This removes the second tangent velocity refresh and
+the second pair of body updates from every solver iteration.
+
+Three interleaved 1,200-step control/current runs produced:
+
+| Bodies | Control step | Coupled step | Step change | Control solver | Coupled solver |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 5,000 | 9.18 ms | 8.20 ms | -10.7% | 4.98 ms | 4.00 ms |
+| 10,000 | 19.65 ms | 17.82 ms | -9.3% | 10.24 ms | 8.39 ms |
+
+The targeted velocity iterations improved by 26.8% at 5,000 bodies and 25.3%
+at 10,000. A settled 512-box workload remained stable and improved from
+1.0492 to 0.7794 ms. A fully sleeping control was effectively unchanged.
+
+This is an intentional physics change. The old independent clamp described a
+square in tangent-impulse space and could exceed the requested friction limit
+by up to `sqrt(2)`. The coupled version projects the accumulated tangent vector
+onto the circular Coulomb limit. Consequently, long-run mixed-scene
+trajectories and contact counts differ, although both versions remain finite
+and healthy. The
+[full comparison](../benchmarks/results/coupled-friction-release.txt) records
+those differences.
+
 ## Reproducing the Release workload
 
 Build the selected source revision in a separate directory to leave the

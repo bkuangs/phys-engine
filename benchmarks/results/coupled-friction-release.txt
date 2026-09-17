@@ -1,0 +1,79 @@
+Coupled Friction Solve - Release Comparison
+============================================
+
+Date:                       2026-09-17
+Hardware:                   Apple M2, macOS arm64
+Compiler/build:             Apple Clang, Release (-O3 -DNDEBUG), C++20
+Control revision:           63af039
+Current source:             experiment/coupled-friction-solve working tree
+Command:                    phys_collision_bench 1200 sap mixed 240
+Scene:                      Seeded mixed floor, sleeping disabled
+Protocol:                   240 warmup + 1200 measured steps per body count
+Run order:                  control/current, current/control, control/current
+Statistic:                  Median of three per-run means
+
+Implementation
+--------------
+
+The previous solver handled two orthogonal friction axes sequentially. Each
+axis reread both bodies' contact velocities, clamped its accumulated impulse
+independently, and updated both bodies before the next axis.
+
+The experiment precomputes and inverts the coupled 2x2 tangent effective-mass
+matrix. Each point and iteration now:
+
+1. Reads one post-normal relative velocity.
+2. Solves both tangent impulse components together.
+3. Projects the accumulated vector onto the circular Coulomb limit.
+4. Applies one combined tangent impulse to each body.
+
+Warm-started tangent impulses use the same circular limit.
+
+Sustained mixed SAP results
+---------------------------
+
+bodies,control_step_ms,coupled_step_ms,step_change,control_solver_ms,coupled_solver_ms,solver_change
+100,0.12,0.10,-16.7%,0.09,0.06,-33.3%
+500,0.72,0.62,-13.9%,0.47,0.37,-21.3%
+1000,1.57,1.37,-12.7%,0.94,0.75,-20.2%
+2500,4.27,3.79,-11.2%,2.40,1.93,-19.6%
+5000,9.18,8.20,-10.7%,4.98,4.00,-19.7%
+10000,19.65,17.82,-9.3%,10.24,8.39,-18.1%
+
+At 5,000 bodies, median deadline misses fell from 1,077/1,200 to 164/1,200.
+The 10,000-body workload still missed all 1,200 deadlines.
+
+The directly targeted velocity-iteration subphase improved from 3.8658 to
+2.8279 ms at 5,000 bodies (26.8%) and from 7.8589 to 5.8743 ms at 10,000
+bodies (25.3%). Constraint preparation increased by 9.3%-10.6% because it now
+constructs and inverts a 2x2 tangent matrix; that cost is included above.
+
+Behavior
+--------
+
+This intentionally changes friction from independent per-axis clamping, whose
+combined magnitude can reach sqrt(2) times the intended limit, to a circular
+Coulomb limit. The deterministic scene therefore follows a different
+trajectory:
+
+bodies,variant,mean_candidates,mean_manifolds,mean_points,final_floor_penetration,final_max_linear_speed,final_max_angular_speed
+5000,control,12206.57,8052.12,11982.82,0.0056,2.5758,6.0831
+5000,coupled,12281.42,8151.21,12095.99,0.0055,2.0413,4.6302
+10000,control,24681.79,16177.59,23810.79,0.0148,1.9956,6.1206
+10000,coupled,24852.50,16369.98,24100.04,0.0056,3.7478,4.3350
+
+Both variants completed with valid finite states and no escaped or below-floor
+bodies. A 512-box settled-stack workload remained stationary with exactly 512
+manifolds and 2,048 points. Its mean step time improved from 1.0492 to
+0.7794 ms (25.7%), while the fully sleeping control remained effectively flat
+at 0.2405 versus 0.2421 ms.
+
+Decision
+--------
+
+Retain for review. The change directly addresses the measured hot loop and
+exceeds a 5% full-step improvement at both 5,000 and 10,000 bodies. It also
+uses a rotationally symmetric Coulomb limit instead of the prior square
+friction bound. The intentional trajectory change means correctness should be
+judged by friction invariants and stability, not exact parity with the old
+axis-order-dependent result.

@@ -159,6 +159,105 @@ namespace
         return true;
     }
 
+    bool testFrictionUsesCircularLimit()
+    {
+        phys::RigidBody staticBody;
+        phys::RigidBody dynamicBody;
+        std::string error;
+
+        if (!phys::RigidBody::createBox(2.0f, 2.0f, 2.0f,
+                                        {}, 1.0f, true, 0.0f, 0.0f, staticBody, error)
+            || !phys::RigidBody::createBox(2.0f, 2.0f, 2.0f,
+                                           {}, 1.0f, false, 0.0f, 0.0f, dynamicBody, error))
+        {
+            std::cerr << "body creation failed: " << error << '\n';
+            return false;
+        }
+
+        dynamicBody.setLinearVelocity({1.0f, -1.0f, 1.0f});
+
+        phys::PhysicsWorld world;
+        phys::RigidBodyHandle bodyA = world.addBody(staticBody);
+        phys::RigidBodyHandle bodyB = world.addBody(dynamicBody);
+
+        phys::ContactManifold manifold{};
+        manifold.bodyA = bodyA;
+        manifold.bodyB = bodyB;
+        manifold.normal = {0.0f, 1.0f, 0.0f};
+        manifold.pointCount = 1;
+        manifold.friction = 0.5f;
+
+        std::vector<phys::ContactManifold> contacts{manifold};
+        phys::SequentialImpulseSolver::solve(contacts, world, 1.0f / 60.0f);
+
+        const phys::RigidBody *solvedBody = world.getBody(bodyB);
+        constexpr float expectedTangentVelocity = 0.6464466f;
+        float tangentImpulseMagnitude = std::sqrt(
+            contacts[0].points[0].tangentImpulse1 * contacts[0].points[0].tangentImpulse1
+            + contacts[0].points[0].tangentImpulse2 * contacts[0].points[0].tangentImpulse2);
+        float tangentLimit = manifold.friction * contacts[0].points[0].normalImpulse;
+        if (!solvedBody || !near(solvedBody->getLinearVelocity().y, 0.0f)
+            || !near(solvedBody->getLinearVelocity().x, expectedTangentVelocity)
+            || !near(solvedBody->getLinearVelocity().z, expectedTangentVelocity)
+            || !near(tangentImpulseMagnitude, tangentLimit))
+        {
+            phys::Vec3 velocity = solvedBody
+                ? solvedBody->getLinearVelocity()
+                : phys::Vec3{};
+            std::cerr << "friction impulse did not use the circular Coulomb limit: velocity "
+                      << velocity.x << ", " << velocity.y << ", " << velocity.z
+                      << "; tangent impulse " << tangentImpulseMagnitude << '\n';
+            return false;
+        }
+        return true;
+    }
+
+    bool testCoupledFrictionAtOffset()
+    {
+        phys::RigidBody staticBody;
+        phys::RigidBody dynamicBody;
+        std::string error;
+        if (!phys::RigidBody::createBox(2.0f, 2.0f, 2.0f,
+                                        {}, 1.0f, true, 0.0f, 0.0f, staticBody, error)
+            || !phys::RigidBody::createBox(2.0f, 2.0f, 2.0f,
+                                           {}, 1.0f, false, 0.0f, 0.0f, dynamicBody, error))
+        {
+            std::cerr << "body creation failed: " << error << '\n';
+            return false;
+        }
+        dynamicBody.setLinearVelocity({1.0f, -1.0f, 1.0f});
+
+        phys::PhysicsWorld world;
+        phys::RigidBodyHandle bodyA = world.addBody(staticBody);
+        phys::RigidBodyHandle bodyB = world.addBody(dynamicBody);
+        phys::ContactManifold manifold{};
+        manifold.bodyA = bodyA;
+        manifold.bodyB = bodyB;
+        manifold.normal = {0.0f, 1.0f, 0.0f};
+        manifold.pointCount = 1;
+        manifold.points[0].localAnchorA = {0.5f, 1.0f, 0.25f};
+        manifold.points[0].localAnchorB = manifold.points[0].localAnchorA;
+        manifold.friction = 10.0f;
+
+        std::vector<phys::ContactManifold> contacts{manifold};
+        phys::SequentialImpulseSolver::solve(contacts, world, 1.0f / 60.0f);
+
+        const phys::RigidBody *solvedBody = world.getBody(bodyB);
+        if (!solvedBody)
+            return false;
+        phys::Vec3 offset = solvedBody->getRotation().rotate(
+            manifold.points[0].localAnchorB);
+        phys::Vec3 contactVelocity = solvedBody->getLinearVelocity()
+            + phys::Math3d::cross(solvedBody->getAngularVelocity(), offset);
+        if (!near(contactVelocity.x, 0.0f) || !near(contactVelocity.z, 0.0f)
+            || phys::Math3d::length(solvedBody->getAngularVelocity()) <= 0.1f)
+        {
+            std::cerr << "coupled off-center friction did not cancel tangential contact velocity\n";
+            return false;
+        }
+        return true;
+    }
+
     bool testWorldCombinesMaterialFriction()
     {
         phys::PhysicsWorld world;
@@ -458,7 +557,9 @@ namespace
 int main()
 {
     return testOffCenterContactProducesAngularVelocity() && testRestitutionUsesIncomingVelocity()
-        && testFrictionConstrainsTangentialVelocity() && testWorldCombinesMaterialFriction()
+        && testFrictionConstrainsTangentialVelocity() && testFrictionUsesCircularLimit()
+        && testCoupledFrictionAtOffset()
+        && testWorldCombinesMaterialFriction()
         && testBoxLandsOnStaticFloor()
         && testWarmStartPairIdentityAndStableMatching()
         && testPreparedBodyDataRefreshedBetweenSolves()
