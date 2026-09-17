@@ -1,0 +1,73 @@
+Header-inline cross-product comparison
+Date:                       2026-09-17
+Branch:                     experiment/sleeping-islands
+Baseline source:            331c3d3, including body/contact solver caches
+Inline source:              331c3d3 + Math3d::cross definition moved into math_utils.hpp
+Unchanged:                  Cross-product formula, other math helpers, solver settings, build flags
+Hardware/compiler:          Apple M2, macOS, Apple Clang 17.0.0.17000604, arm64
+Build:                      Release, -O3 -DNDEBUG -std=c++20 -arch arm64; no LTO
+Mixed workload:             Seed 42, balanced spheres/boxes and one floor; sleeping disabled
+Mixed protocol:             240 warmup + 1200 measured steps, fixed 1/120-second timestep
+Mixed runner:               Focused driver calls existing runBenchmark for selected count/backend
+Box workload:               phys_cpu_profile boxes 3; 512 boxes and one floor, sleeping disabled
+Box protocol:               240 warmup, three interleaved 3-second runs per version
+Controls:                   phys_cpu_profile boxes 2 --sleep; phys_cpu_profile spheres 3
+Profiling driver:           No CPU sampler or allocation-counting hook
+Timing interpretation:      Individual mixed-run means; box summary is median of per-run means
+Notes:                      Unpaced shared-machine measurements, not real-time guarantees.
+                            No changes to the eight iterations, contact ordering, or sleep thresholds.
+
+Changed-file SHA-256:
+include/phys/math/math_utils.hpp: cd4ae15c5bf42d69363b87003bae9165ac6d86a15a1c7b8f66b779b435284496
+src/math/math_utils.cpp:         806eac54a63b686faa535e018640230ccdcf4bcdaa1a4bc4358584252cb96bce
+
+Execution order:
+2500 tree: before, inline
+10000 tree: inline, before
+10000 sap: before, inline
+boxes: before-1, inline-1, inline-2, before-2, before-3, inline-3
+controls: before sleeping boxes / spheres, then inline sleeping boxes / spheres
+
+Mixed per-run measurements (all times ms; each row has 1200 samples)
+variant,bodies,backend,mean,solver,broadphase,narrowphase,p95,max,misses,allocations,mean_manifolds,mean_points,final_floor_penetration
+before,2500,tree,5.37,2.89,1.46,0.97,5.63,36.34,17,21,3986.20,5925.30,0.0053
+inline,2500,tree,4.89,2.42,1.47,0.95,5.14,10.47,5,21,3986.20,5925.30,0.0053
+inline,10000,tree,24.33,10.52,9.74,3.88,28.43,74.86,1200,23,16177.59,23810.79,0.0148
+before,10000,tree,25.76,12.13,9.60,3.86,29.53,70.44,1200,23,16177.59,23810.79,0.0148
+before,10000,sap,21.63,12.03,5.55,3.88,24.20,65.18,1200,23,16177.59,23810.79,0.0148
+inline,10000,sap,19.84,10.28,5.51,3.87,22.21,35.23,1200,23,16177.59,23810.79,0.0148
+
+Unprofiled driver per-run measurements (times ms)
+variant,scene,sleep,run,mean,solver,broadphase,narrowphase,steps
+before,boxes,off,1,1.1829,0.9792,0.0331,0.1619,2536
+inline,boxes,off,1,1.0250,0.8208,0.0329,0.1625,2927
+inline,boxes,off,2,1.0200,0.8160,0.0327,0.1627,2941
+before,boxes,off,2,1.1794,0.9756,0.0332,0.1619,2544
+before,boxes,off,3,1.2042,0.9963,0.0335,0.1655,2491
+inline,boxes,off,3,1.0244,0.8200,0.0329,0.1628,2929
+before,boxes,on,1,0.2343,0.0151,0.0318,0.1628,8530
+before,spheres,off,1,4.6651,0.3574,4.0400,0.1357,641
+inline,boxes,on,1,0.2345,0.0150,0.0323,0.1636,8525
+inline,spheres,off,1,4.5814,0.2523,4.0623,0.1361,653
+
+Box summary: median of three non-sleeping per-run means
+variant,step_ms,solver_ms
+before,1.1829,0.9792
+inline,1.0244,0.8200
+
+Code generation:
+The optimized solver object no longer emits or references Math3d::cross.
+The rebuilt Release profiling executable contains no cross-product call instructions.
+This was verified without LTO or force-inline attributes.
+
+Behavior:
+All 27108 recorded velocity/impulse scalars in the existing seeded 128-system,
+four-solves-per-system differential probe matched exactly in this build.
+Mixed candidate/contact counts, final reported health/velocity/penetration,
+tree work counts and allocation counts matched in every before/inline pair.
+All mixed runs passed the existing scene-health checks.
+All box runs retained 512 manifolds; both sleeping controls kept all 512 bodies
+asleep and solved zero manifolds. No runtime buffers or allocations were added.
+
+Decision: retain header inlining. The formula is unchanged and the repeated
+solver work is cheaper with no new solver-state storage.

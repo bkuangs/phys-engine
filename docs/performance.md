@@ -969,6 +969,48 @@ cmake --build build/release-bench --target phys_collision_bench phys_cpu_profile
 identical in the differential probe; the contact-response layer gives the larger
 additional reduction while preserving the solver equations and processing order.
 
+## Inlining the cross product
+
+`Math3d::cross()` now has its unchanged definition inside the class in
+`math_utils.hpp`, making it implicitly inline and visible to callers. Its
+out-of-line definition was removed from `math_utils.cpp`; no other math helpers,
+compiler flags, or solver equations changed. Release remains `-O3 -DNDEBUG`
+without LTO.
+
+Before this change, the repeated solver loop could call the cross-product helper
+six times per contact point per iteration. After rebuilding, the Release solver
+object contains no out-of-line cross-product symbol, and disassembly of the
+Release profiling executable contains no calls to it.
+
+The [comparison report](../benchmark-results-inline-cross-release.txt) uses a
+fresh preserved baseline from `331c3d3`, which already includes both solver
+cache layers. Mixed rows are matched individual runs with 240 warmup and 1,200
+measured steps. The box row is the median of three interleaved three-second
+runs after 240 warmup steps. Sleeping is disabled in this table; times are ms:
+
+| Workload | Before | Inline cross | Step-time reduction |
+| --- | ---: | ---: | ---: |
+| 2,500 mixed, tree | 5.37 | 4.89 | 8.9% |
+| 10,000 mixed, tree | 25.76 | 24.33 | 5.6% |
+| 10,000 mixed, SAP | 21.63 | 19.84 | 8.3% |
+| 512 settled boxes, tree | 1.1829 | 1.0244 | 13.4% |
+
+The corresponding solver times change from 2.89 to 2.42 ms, 12.13 to 10.52 ms,
+12.03 to 10.28 ms, and 0.9792 to 0.8200 ms. Broadphase and narrowphase timings
+are mostly unchanged. The fully sleeping box control is effectively flat
+(0.2343 vs 0.2345 ms), while the short sphere control changes from 4.6651 to
+4.5814 ms.
+
+All 27,108 velocity/impulse scalars in the same seeded differential probe used
+for solver caching match exactly in this build. Mixed-scene candidate/contact
+loads, reported final state/penetration, traversal counts, and allocation counts
+also match between versions. No new runtime buffers were added.
+
+The 2,500-body tree run still misses 5/1,200 deadlines, and both 10,000-body runs
+miss all deadlines. These unpaced, shared-machine measurements establish a mean
+cost reduction, not a worst-case or real-time guarantee. Reproduce using the
+same commands as the solver-cache comparison, with `331c3d3` as the baseline.
+
 ## Reproducing the Release workload
 
 Build the selected source revision in a separate directory to leave the
