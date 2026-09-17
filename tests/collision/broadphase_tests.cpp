@@ -1,4 +1,5 @@
 #include <phys/collision/broadphase.hpp>
+#include <phys/collision/dynamic_aabb_tree.hpp>
 #include <phys/collision/narrowphase.hpp>
 #include <phys/world/physics_world.hpp>
 #include <algorithm>
@@ -27,12 +28,23 @@ bool matchesBruteForce(const std::vector<phys::Aabb>& bounds,
     }
 
     phys::BroadPhaseStats stats{-1.0, -1.0, -1.0, -1.0, 1, 1, 1, 1, 1, -1.0};
-    const auto actual = phys::BroadPhase::findCandidatePairs(bounds, &stats, algorithm);
-    const auto withoutStats = phys::BroadPhase::findCandidatePairs(bounds, nullptr, algorithm);
+    bool dynamic = algorithm == phys::BroadPhaseAlgorithm::DynamicTree;
+    phys::DynamicAabbTree tree;
+    if (dynamic)
+        for (std::size_t index = 0; index < bounds.size(); ++index)
+            tree.createProxy(bounds[index], index);
+    const auto actual = dynamic ? tree.findCandidatePairs(&stats)
+        : phys::BroadPhase::findCandidatePairs(bounds, &stats, algorithm);
+    const auto withoutStats = dynamic ? tree.findCandidatePairs()
+        : phys::BroadPhase::findCandidatePairs(bounds, nullptr, algorithm);
     bool grid = algorithm == phys::BroadPhaseAlgorithm::UniformGrid;
-    if (stats.xWindowComparisons != (grid ? 0 : expectedXComparisons)
+    if (stats.xWindowComparisons != (grid || dynamic ? 0 : expectedXComparisons)
         || stats.aabbPairs != expected.size() || withoutStats.size() != actual.size()) {
         std::cerr << "broadphase work counters or optional stats behavior differ\n";
+        return false;
+    }
+    if (dynamic && (stats.treeProxyCount != bounds.size() || stats.treeLeafChecks < expected.size())) {
+        std::cerr << "invalid tree work counters\n";
         return false;
     }
     if (grid ? (stats.gridComparisons < expected.size()
@@ -67,18 +79,19 @@ bool matchesBruteForce(const std::vector<phys::Aabb>& bounds,
     return true;
 }
 
-bool matchesBoth(const std::vector<phys::Aabb>& bounds)
+bool matchesAll(const std::vector<phys::Aabb>& bounds)
 {
     return matchesBruteForce(bounds, phys::BroadPhaseAlgorithm::SweepAndPrune)
-        && matchesBruteForce(bounds, phys::BroadPhaseAlgorithm::UniformGrid);
+        && matchesBruteForce(bounds, phys::BroadPhaseAlgorithm::UniformGrid)
+        && matchesBruteForce(bounds, phys::BroadPhaseAlgorithm::DynamicTree);
 }
 
 bool testBoundaryCases()
 {
-    return matchesBoth({})
-        && matchesBoth({{{0, 0, 0}, {0, 0, 0}}})
-        && matchesBoth(std::vector<phys::Aabb>(16, {{-1, -1, -1}, {1, 1, 1}}))
-        && matchesBoth({
+    return matchesAll({})
+        && matchesAll({{{0, 0, 0}, {0, 0, 0}}})
+        && matchesAll(std::vector<phys::Aabb>(16, {{-1, -1, -1}, {1, 1, 1}}))
+        && matchesAll({
             {{4, 0, 0}, {5, 1, 1}},
             {{-2, -2, -2}, {0, 0, 0}},
             {{0, 0, 0}, {1, 1, 1}},
@@ -111,7 +124,7 @@ bool testRandomAndMovingBounds()
             bounds.push_back(box);
         }
         for (int step = 0; step < 4; ++step) {
-            if (!matchesBoth(bounds))
+            if (!matchesAll(bounds))
                 return false;
             for (auto& box : bounds) {
                 phys::Vec3 motion{position(rng) * 0.05f, position(rng) * 0.05f,
@@ -141,7 +154,7 @@ bool testGridBoundariesAndOverflow()
     atLimit.push_back({{0, 0, 0}, {4, 3, 3}});
     phys::BroadPhase::findCandidatePairs(
         atLimit, &stats, phys::BroadPhaseAlgorithm::UniformGrid);
-    if (stats.gridOverflowAabbs != 1 || stats.gridEntries != 88 || !matchesBoth(atLimit)) {
+    if (stats.gridOverflowAabbs != 1 || stats.gridEntries != 88 || !matchesAll(atLimit)) {
         std::cerr << "grid did not enforce the exact 64-cell membership boundary\n";
         return false;
     }
@@ -163,8 +176,8 @@ bool testGridBoundariesAndOverflow()
         std::cerr << "large floor and extreme coordinates did not use the overflow path\n";
         return false;
     }
-    return matchesBoth(bounds)
-        && matchesBoth({{{-1, -1, -1}, {1, 1, 1}},
+    return matchesAll(bounds)
+        && matchesAll({{{-1, -1, -1}, {1, 1, 1}},
                        {{-largest, -largest, -largest}, {largest, largest, largest}}});
 }
 
@@ -223,11 +236,16 @@ bool worldMatchesBruteForce(phys::PhysicsWorld& world,
     const auto& contacts = world.contacts();
     if (stats.possiblePairs != possiblePairs || stats.candidatePairs != candidatePairs
         || stats.broadPhaseDetails.xWindowComparisons !=
-            (world.broadPhaseAlgorithm == phys::BroadPhaseAlgorithm::UniformGrid ? 0 : xComparisons)
+            (world.broadPhaseAlgorithm == phys::BroadPhaseAlgorithm::SweepAndPrune ? xComparisons : 0)
         || stats.broadPhaseDetails.aabbPairs != aabbPairs
         || stats.contactCount != expectedContacts.size()
         || contacts.size() != expectedContacts.size()) {
         std::cerr << "world broadphase counts differ from brute force\n";
+        return false;
+    }
+    if (world.broadPhaseAlgorithm == phys::BroadPhaseAlgorithm::DynamicTree
+        && stats.broadPhaseDetails.treeProxyCount != active.size()) {
+        std::cerr << "tree retained stale collider proxies\n";
         return false;
     }
     double measuredPhases = 0.0;
@@ -305,12 +323,23 @@ bool testWorldFilteringAndSlotReuse(phys::BroadPhaseAlgorithm algorithm)
     if (!worldMatchesBruteForce(world, handles))
         return false;
 
+    if (algorithm == phys::BroadPhaseAlgorithm::DynamicTree)
+        world.broadPhaseAlgorithm = phys::BroadPhaseAlgorithm::SweepAndPrune;
     world.removeBody(extra.body);
     if (!worldMatchesBruteForce(world, handles) || !addSphere({1, 0, 0})
         || !worldMatchesBruteForce(world, handles))
         return false;
     if (world.getCollider(handles.back())->body.generation == extra.body.generation) {
         std::cerr << "test did not reuse the removed body slot\n";
+        return false;
+    }
+    world.broadPhaseAlgorithm = algorithm;
+    if (!worldMatchesBruteForce(world, handles))
+        return false;
+    if (algorithm == phys::BroadPhaseAlgorithm::DynamicTree
+        && (world.lastStepStats().broadPhaseDetails.treeRemovals != 2
+            || world.lastStepStats().broadPhaseDetails.treeInsertions != 1)) {
+        std::cerr << "tree did not refresh removed/reused slots after a backend switch\n";
         return false;
     }
     world.getCollider(handles.back())->localTransform.position = {30, 0, 0};
@@ -324,9 +353,10 @@ bool testWorldFilteringAndSlotReuse(phys::BroadPhaseAlgorithm algorithm)
 
 bool testWorldEvolutionMatches()
 {
-    std::array<phys::PhysicsWorld, 2> worlds;
+    std::array<phys::PhysicsWorld, 3> worlds;
     worlds[1].broadPhaseAlgorithm = phys::BroadPhaseAlgorithm::UniformGrid;
-    std::array<std::vector<phys::RigidBodyHandle>, 2> handles;
+    worlds[2].broadPhaseAlgorithm = phys::BroadPhaseAlgorithm::DynamicTree;
+    std::array<std::vector<phys::RigidBodyHandle>, 3> handles;
     std::string error;
     for (std::size_t variant = 0; variant < worlds.size(); ++variant) {
         auto& world = worlds[variant];
@@ -354,25 +384,31 @@ bool testWorldEvolutionMatches()
         }
     }
     for (int step = 0; step < 240; ++step) {
+        if (step == 60)
+            worlds[2].broadPhaseAlgorithm = phys::BroadPhaseAlgorithm::SweepAndPrune;
+        if (step == 80)
+            worlds[2].broadPhaseAlgorithm = phys::BroadPhaseAlgorithm::DynamicTree;
         for (auto& world : worlds)
             world.step(1.0f / 60.0f);
-        if (worlds[0].lastStepStats().candidatePairs != worlds[1].lastStepStats().candidatePairs
-            || worlds[0].contacts().size() != worlds[1].contacts().size()) {
-            std::cerr << "grid changed evolving world contact counts\n";
-            return false;
-        }
-        for (std::size_t index = 0; index < handles[0].size(); ++index) {
-            const auto& a = *worlds[0].getBody(handles[0][index]);
-            const auto& b = *worlds[1].getBody(handles[1][index]);
-            auto qa = a.getRotation();
-            auto qb = b.getRotation();
-            if (!(phys::Math3d::length(a.getPosition() - b.getPosition()) <= 1e-5f
-                && phys::Math3d::length(a.getLinearVelocity() - b.getLinearVelocity()) <= 1e-5f
-                && phys::Math3d::length(a.getAngularVelocity() - b.getAngularVelocity()) <= 1e-5f
-                && std::abs(qa.x - qb.x) + std::abs(qa.y - qb.y)
-                    + std::abs(qa.z - qb.z) + std::abs(qa.w - qb.w) <= 1e-5f)) {
-                std::cerr << "grid changed an evolving body's pose or velocity\n";
+        for (std::size_t variant = 1; variant < worlds.size(); ++variant) {
+            if (worlds[0].lastStepStats().candidatePairs != worlds[variant].lastStepStats().candidatePairs
+                || worlds[0].contacts().size() != worlds[variant].contacts().size()) {
+                std::cerr << "backend changed evolving world contact counts\n";
                 return false;
+            }
+            for (std::size_t index = 0; index < handles[0].size(); ++index) {
+                const auto& a = *worlds[0].getBody(handles[0][index]);
+                const auto& b = *worlds[variant].getBody(handles[variant][index]);
+                auto qa = a.getRotation();
+                auto qb = b.getRotation();
+                if (!(phys::Math3d::length(a.getPosition() - b.getPosition()) <= 1e-5f
+                    && phys::Math3d::length(a.getLinearVelocity() - b.getLinearVelocity()) <= 1e-5f
+                    && phys::Math3d::length(a.getAngularVelocity() - b.getAngularVelocity()) <= 1e-5f
+                    && std::abs(qa.x - qb.x) + std::abs(qa.y - qb.y)
+                        + std::abs(qa.z - qb.z) + std::abs(qa.w - qb.w) <= 1e-5f)) {
+                    std::cerr << "backend changed an evolving body's pose or velocity\n";
+                    return false;
+                }
             }
         }
     }
@@ -387,5 +423,6 @@ int main()
         && testGridBoundariesAndOverflow()
         && testWorldFilteringAndSlotReuse(phys::BroadPhaseAlgorithm::SweepAndPrune)
         && testWorldFilteringAndSlotReuse(phys::BroadPhaseAlgorithm::UniformGrid)
+        && testWorldFilteringAndSlotReuse(phys::BroadPhaseAlgorithm::DynamicTree)
         && testWorldEvolutionMatches() ? 0 : 1;
 }

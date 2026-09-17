@@ -6,6 +6,14 @@ set_target_properties(phys_broadphase_tests PROPERTIES CXX_EXTENSIONS OFF)
 
 add_test(NAME phys_broadphase_tests COMMAND phys_broadphase_tests)
 
+add_executable(phys_dynamic_tree_tests
+	collision/dynamic_aabb_tree_tests.cpp
+)
+target_link_libraries(phys_dynamic_tree_tests PRIVATE phys::phys)
+set_target_properties(phys_dynamic_tree_tests PROPERTIES CXX_EXTENSIONS OFF)
+
+add_test(NAME phys_dynamic_tree_tests COMMAND phys_dynamic_tree_tests)
+
 add_executable(phys_narrowphase_tests
 	collision/narrowphase_tests.cpp
 )

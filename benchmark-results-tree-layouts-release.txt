@@ -1,0 +1,70 @@
+Static and moving maintenance + query comparison (paired subtree traversal)
+Date:                       2026-09-16
+Branch:                     experiment/dynamic-aabb-tree
+Source:                     80d60c2 + uncommitted persistent dynamic-tree prototype
+Build:                      Release, Apple Clang 17.0.0.17000604, arm64, -O3 -DNDEBUG
+Hardware:                   Apple M2, macOS
+Command:                    ./build/release-bench/phys_broadphase_compare 10
+Protocol:                   Ten queries per backend/layout/motion; rotating SAP/grid/tree execution order
+Timing:                     Maintenance plus query; first sample includes tree construction
+Tree lifetime:              Same tree reused across samples, no rebuild each frame
+Moving cases:               Deterministic per-object translations each sample after the first
+                            At midpoint, every 25th AABB grows 20%; the large floor remains stationary
+Validation:                 All ordered pairs compared with a fresh SAP reference outside timing
+Layouts:                    Uniform, eight clusters, mixed rotated boxes with a floor, wide-size rotated cubes
+Notes:                      AABB fixture generation/motion is outside timing for all backends.
+                            Query results are not full mixed-shape world-step timings.
+                            pair_checks counts tight leaf checks for tree; node_pair_visits includes hierarchy work.
+
+Standalone maintenance + queries; fixed seed 42; interleaved SAP/grid/tree
+Tree construction is included in the first sample; tree persists across samples.
+Every result is compared with SAP outside the timed region.
+layout,motion,aabbs,algorithm,samples,mean_ms,p50_ms,p95_ms,first_ms,allocations,pair_checks,emitted_pairs,cell_entries,overflow_aabbs,cell_width,node_pair_visits,tree_height,insertions,reinsertions
+uniform,static,1000,sap,10,0.3105,0.3013,0.3466,0.3529,11,48390,443,0,0,0.0000,0,0,0,0
+uniform,static,1000,grid,10,0.6473,0.6295,0.7272,0.7598,15,3458,443,8000,0,1.0000,0,0,0,0
+uniform,static,1000,tree,10,0.2791,0.2381,0.2635,0.6188,12,766,443,0,0,0.0000,17190,12,1000,0
+clustered,static,1000,sap,10,0.8880,0.8578,0.9466,0.9967,15,110340,5164,0,0,0.0000,0,0,0,0
+clustered,static,1000,grid,10,1.4484,1.4144,1.5632,1.5988,19,32951,5164,8000,0,1.0000,0,0,0,0
+clustered,static,1000,tree,10,0.6171,0.5882,0.6367,0.9032,16,8223,5164,0,0,0.0000,35196,12,1000,0
+mixed-floor,static,1000,sap,10,0.3967,0.3925,0.4109,0.4128,13,71856,1147,0,0,0.0000,0,0,0,0
+mixed-floor,static,1000,grid,10,0.5777,0.5732,0.5842,0.5842,17,9923,1147,5566,1,1.7589,0,0,0,0
+mixed-floor,static,1000,tree,10,0.3969,0.3753,0.3850,0.6125,14,1941,1147,0,0,0.0000,29740,12,1000,0
+wide-sizes,static,1000,sap,10,0.7101,0.7061,0.7213,0.6993,15,84622,5413,0,0,0.0000,0,0,0,0
+wide-sizes,static,1000,grid,10,2.2102,2.1952,2.2451,2.2079,27,184616,5413,8966,201,0.9905,0,0,0,0
+wide-sizes,static,1000,tree,10,0.9170,0.8883,0.9235,1.1287,16,8732,5413,0,0,0.0000,64978,12,1000,0
+uniform,moving,1000,sap,10,0.2736,0.2702,0.2770,0.2710,11,48614,451,0,0,0.0000,0,0,0,0
+uniform,moving,1000,grid,10,0.5486,0.5433,0.5614,0.5387,15,3558,451,8122,0,1.0000,0,0,0,0
+uniform,moving,1000,tree,10,0.2935,0.3014,0.3838,0.4399,12,790,451,0,0,0.0000,17410,12,1000,1832
+clustered,moving,1000,sap,10,0.8349,0.8361,0.8393,0.8314,15,108654,5046,0,0,0.0000,0,0,0,0
+clustered,moving,1000,grid,10,1.3735,1.3670,1.3995,1.4013,19,33414,5046,8119,0,1.0000,0,0,0,0
+clustered,moving,1000,tree,10,0.6572,0.6595,0.7555,0.8278,16,8171,5046,0,0,0.0000,36550,12,1000,1836
+mixed-floor,moving,1000,sap,10,0.4031,0.4025,0.4059,0.4038,13,72320,1206,0,0,0.0000,0,0,0,0
+mixed-floor,moving,1000,grid,10,0.5798,0.5822,0.5872,0.5830,17,10145,1206,5578,1,1.7628,0,0,0,0
+mixed-floor,moving,1000,tree,10,0.4583,0.4466,0.5091,0.6123,14,2017,1206,0,0,0.0000,29648,12,1000,1697
+wide-sizes,moving,1000,sap,10,0.7113,0.7050,0.7290,0.6950,15,84939,5475,0,0,0.0000,0,0,0,0
+wide-sizes,moving,1000,grid,10,2.2272,2.2071,2.2736,2.1810,27,184316,5475,8992,200,0.9996,0,0,0,0
+wide-sizes,moving,1000,tree,10,1.0488,1.0341,1.1111,1.1232,16,8943,5475,0,0,0.0000,67554,12,1000,3007
+uniform,static,10000,sap,10,8.3610,8.3081,8.4646,8.2836,15,2297060,4921,0,0,0.0000,0,0,0,0
+uniform,static,10000,grid,10,6.3038,6.2464,6.3157,6.3157,19,38489,4921,80000,0,1.0000,0,0,0,0
+uniform,static,10000,tree,10,3.8281,3.3747,4.0681,7.0388,16,8398,4921,0,0,0.0000,280292,16,10000,0
+clustered,static,10000,sap,10,27.5542,27.1711,27.8081,27.1241,18,5482749,65200,0,0,0.0000,0,0,0,0
+clustered,static,10000,grid,10,19.5760,18.8194,19.9355,19.2651,22,497260,65200,80000,0,1.0000,0,0,0,0
+clustered,static,10000,tree,10,10.9674,9.8929,13.4108,13.4108,19,108687,65200,0,0,0.0000,643318,16,10000,0
+mixed-floor,static,10000,sap,10,12.9581,12.9495,12.9935,12.9935,16,3350111,12707,0,0,0.0000,0,0,0,0
+mixed-floor,static,10000,grid,10,6.8229,6.8207,6.8415,6.8327,21,112902,12707,57157,1,1.7597,0,0,0,0
+mixed-floor,static,10000,tree,10,6.0448,5.6650,5.7780,9.2352,17,21569,12707,0,0,0.0000,454812,16,10000,0
+wide-sizes,static,10000,sap,10,22.1300,22.1255,22.1846,22.1846,19,4159465,67020,0,0,0.0000,0,0,0,0
+wide-sizes,static,10000,grid,10,117.2787,116.2669,119.4556,118.1549,34,17967931,67020,91117,1990,0.9966,0,0,0,0
+wide-sizes,static,10000,tree,10,14.5777,14.0058,15.6598,17.8781,20,112560,67020,0,0,0.0000,1002806,16,10000,0
+uniform,moving,10000,sap,10,8.3204,8.3104,8.3836,8.3104,15,2311011,4995,0,0,0.0000,0,0,0,0
+uniform,moving,10000,grid,10,6.3325,6.3195,6.4312,6.3195,19,39583,4995,81035,0,1.0000,0,0,0,0
+uniform,moving,10000,tree,10,4.4087,4.3156,4.8327,6.9505,16,8519,4995,0,0,0.0000,246724,16,10000,18348
+clustered,moving,10000,sap,10,27.2622,27.1987,27.3877,27.1987,18,5469540,65992,0,0,0.0000,0,0,0,0
+clustered,moving,10000,grid,10,19.3016,19.1035,20.0685,18.7338,22,497688,65992,81093,0,1.0000,0,0,0,0
+clustered,moving,10000,tree,10,11.7357,11.6135,13.2657,13.3583,20,110075,65992,0,0,0.0000,658118,16,10000,18311
+mixed-floor,moving,10000,sap,10,12.9980,12.9365,13.1179,12.9365,16,3375224,13014,0,0,0.0000,0,0,0,0
+mixed-floor,moving,10000,grid,10,6.9099,6.8897,7.0069,6.8639,21,115156,13014,57326,1,1.7672,0,0,0,0
+mixed-floor,moving,10000,tree,10,6.6688,6.3728,7.4785,9.1156,17,22085,13014,0,0,0.0000,391222,16,10000,16991
+wide-sizes,moving,10000,sap,10,22.2925,22.1844,22.4730,22.1113,19,4188854,68864,0,0,0.0000,0,0,0,0
+wide-sizes,moving,10000,grid,10,118.8347,116.4780,119.8369,130.5817,34,17984757,68864,90842,1992,1.0012,0,0,0,0
+wide-sizes,moving,10000,tree,10,16.4814,15.8204,19.3982,19.3982,20,115713,68864,0,0,0.0000,989634,16,10000,30926

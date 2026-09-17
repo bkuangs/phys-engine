@@ -1,0 +1,70 @@
+Initial static and moving comparison (before spatially aware rotations)
+Date:                       2026-09-16
+Branch:                     experiment/dynamic-aabb-tree
+Source:                     80d60c2 + uncommitted persistent dynamic-tree prototype
+Build:                      Release, Apple Clang 17.0.0.17000604, arm64, -O3 -DNDEBUG
+Hardware:                   Apple M2, macOS
+Command:                    ./build/release-bench/phys_broadphase_compare 10
+Protocol:                   Ten queries per backend/layout/motion; rotating SAP/grid/tree execution order
+Timing:                     Maintenance plus query; first sample includes tree construction
+Tree lifetime:              Same tree reused across samples, no rebuild each frame
+Moving cases:               Deterministic per-object translations each sample after the first
+                            At midpoint, every 25th AABB grows 20%; the large floor remains stationary
+Validation:                 All ordered pairs compared with a fresh SAP reference outside timing
+Layouts:                    Uniform, eight clusters, mixed rotated boxes with a floor, wide-size rotated cubes
+Notes:                      AABB fixture generation/motion is outside timing for all backends.
+                            Query results are not full mixed-shape world-step timings.
+                            pair_checks counts tight leaf checks for tree; node_visits includes hierarchy work.
+
+Standalone maintenance + queries; fixed seed 42; interleaved SAP/grid/tree
+Tree construction is included in the first sample; tree persists across samples.
+Every result is compared with SAP outside the timed region.
+layout,motion,aabbs,algorithm,samples,mean_ms,p50_ms,p95_ms,first_ms,allocations,pair_checks,emitted_pairs,cell_entries,overflow_aabbs,cell_width,node_visits,tree_height,insertions,reinsertions
+uniform,static,1000,sap,10,0.3915,0.3805,0.4552,0.4679,11,48390,443,0,0,0.0000,0,0,0,0
+uniform,static,1000,grid,10,0.7978,0.7753,0.9419,0.9827,15,3458,443,8000,0,1.0000,0,0,0,0
+uniform,static,1000,tree,10,0.7407,0.6837,0.8021,1.3013,12,595,443,0,0,0.0000,61460,12,1000,0
+clustered,static,1000,sap,10,0.9926,0.8848,1.1840,1.1113,15,110340,5164,0,0,0.0000,0,0,0,0
+clustered,static,1000,grid,10,1.6491,1.4451,1.9240,1.8461,19,32951,5164,8000,0,1.0000,0,0,0,0
+clustered,static,1000,tree,10,0.9733,0.8130,1.3685,1.2873,16,6612,5164,0,0,0.0000,78830,12,1000,0
+mixed-floor,static,1000,sap,10,0.3881,0.3824,0.4047,0.4065,13,71856,1147,0,0,0.0000,0,0,0,0
+mixed-floor,static,1000,grid,10,0.5777,0.5763,0.5806,0.5842,17,9923,1147,5566,1,1.7589,0,0,0,0
+mixed-floor,static,1000,tree,10,0.8490,0.8262,0.8497,1.0701,14,1511,1147,0,0,0.0000,103654,12,1000,0
+wide-sizes,static,1000,sap,10,0.7072,0.7043,0.7235,0.6880,15,84622,5413,0,0,0.0000,0,0,0,0
+wide-sizes,static,1000,grid,10,2.2150,2.2037,2.2658,2.2128,27,184616,5413,8966,201,0.9905,0,0,0,0
+wide-sizes,static,1000,tree,10,1.3299,1.3052,1.3472,1.5748,16,6995,5413,0,0,0.0000,147924,12,1000,0
+uniform,moving,1000,sap,10,0.2745,0.2730,0.2787,0.2875,11,48614,451,0,0,0.0000,0,0,0,0
+uniform,moving,1000,grid,10,0.5500,0.5427,0.5598,0.5386,15,3558,451,8122,0,1.0000,0,0,0,0
+uniform,moving,1000,tree,10,0.6642,0.6595,0.7878,0.7286,12,634,451,0,0,0.0000,92954,12,1000,1832
+clustered,moving,1000,sap,10,0.8383,0.8369,0.8412,0.8322,15,108654,5046,0,0,0.0000,0,0,0,0
+clustered,moving,1000,grid,10,1.3713,1.3641,1.3983,1.3641,19,33414,5046,8119,0,1.0000,0,0,0,0
+clustered,moving,1000,tree,10,0.8561,0.8557,0.9742,1.0153,16,6561,5046,0,0,0.0000,78906,12,1000,1836
+mixed-floor,moving,1000,sap,10,0.4104,0.4080,0.4178,0.4007,13,72320,1206,0,0,0.0000,0,0,0,0
+mixed-floor,moving,1000,grid,10,0.5820,0.5840,0.6020,0.6020,17,10145,1206,5578,1,1.7628,0,0,0,0
+mixed-floor,moving,1000,tree,10,0.9011,0.8872,0.9588,1.0712,14,1585,1206,0,0,0.0000,103040,12,1000,1697
+wide-sizes,moving,1000,sap,10,0.7093,0.7045,0.7223,0.6946,15,84939,5475,0,0,0.0000,0,0,0,0
+wide-sizes,moving,1000,grid,10,2.2171,2.2038,2.2537,2.1838,27,184316,5475,8992,200,0.9996,0,0,0,0
+wide-sizes,moving,1000,tree,10,1.4379,1.4133,1.5012,1.5442,16,7126,5475,0,0,0.0000,148054,12,1000,3007
+uniform,static,10000,sap,10,8.3638,8.2932,8.5065,8.2556,15,2297060,4921,0,0,0.0000,0,0,0,0
+uniform,static,10000,grid,10,6.3170,6.2501,6.6186,6.3212,19,38489,4921,80000,0,1.0000,0,0,0,0
+uniform,static,10000,tree,10,16.2427,15.7162,17.0217,19.4543,16,6490,4921,0,0,0.0000,1713156,16,10000,0
+clustered,static,10000,sap,10,27.1839,27.1625,27.2342,27.2145,18,5482749,65200,0,0,0.0000,0,0,0,0
+clustered,static,10000,grid,10,18.9458,18.8080,19.1960,19.1960,22,497260,65200,80000,0,1.0000,0,0,0,0
+clustered,static,10000,tree,10,21.2981,20.9251,21.4072,24.4742,19,85257,65200,0,0,0.0000,1754330,16,10000,0
+mixed-floor,static,10000,sap,10,12.9745,12.9588,13.0494,12.8805,16,3350111,12707,0,0,0.0000,0,0,0,0
+mixed-floor,static,10000,grid,10,6.9895,6.8466,6.9503,6.8466,21,112902,12707,57157,1,1.7597,0,0,0,0
+mixed-floor,static,10000,tree,10,24.0217,23.0135,26.3338,26.3338,17,16736,12707,0,0,0.0000,2410742,16,10000,0
+wide-sizes,static,10000,sap,10,22.5358,22.1263,23.1071,22.1173,19,4159465,67020,0,0,0.0000,0,0,0,0
+wide-sizes,static,10000,grid,10,118.3160,116.3812,119.7976,116.9935,34,17967931,67020,91117,1990,0.9966,0,0,0,0
+wide-sizes,static,10000,tree,10,29.5618,28.8915,31.4299,32.3836,20,88547,67020,0,0,0.0000,2614848,16,10000,0
+uniform,moving,10000,sap,10,8.3323,8.3154,8.3741,8.2895,15,2311011,4995,0,0,0.0000,0,0,0,0
+uniform,moving,10000,grid,10,6.4309,6.3743,6.4363,6.2038,19,39583,4995,81035,0,1.0000,0,0,0,0
+uniform,moving,10000,tree,10,15.8761,15.5541,17.4399,19.1445,16,6602,4995,0,0,0.0000,1552960,16,10000,18348
+clustered,moving,10000,sap,10,27.6266,27.3027,28.2364,27.1812,18,5469540,65992,0,0,0.0000,0,0,0,0
+clustered,moving,10000,grid,10,18.9766,18.9047,19.2027,18.7291,22,497688,65992,81093,0,1.0000,0,0,0,0
+clustered,moving,10000,tree,10,22.4099,22.4700,23.5064,24.3080,20,86590,65992,0,0,0.0000,1791156,16,10000,18311
+mixed-floor,moving,10000,sap,10,13.5360,13.1284,13.5592,12.9678,16,3375224,13014,0,0,0.0000,0,0,0,0
+mixed-floor,moving,10000,grid,10,7.3283,6.9190,7.2408,6.8266,21,115156,13014,57326,1,1.7672,0,0,0,0
+mixed-floor,moving,10000,tree,10,27.4728,26.4199,31.8962,37.2512,17,17153,13014,0,0,0.0000,2669528,16,10000,16991
+wide-sizes,moving,10000,sap,10,22.5368,22.2143,23.6522,22.0398,19,4188854,68864,0,0,0.0000,0,0,0,0
+wide-sizes,moving,10000,grid,10,116.3211,116.3790,116.6725,117.2468,34,17984757,68864,90842,1992,1.0012,0,0,0,0
+wide-sizes,moving,10000,tree,10,32.1773,31.6146,34.3042,34.3042,20,90998,68864,0,0,0.0000,2728648,16,10000,30926

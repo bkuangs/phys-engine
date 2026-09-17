@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <stdexcept>
 
 namespace phys {
 
@@ -148,6 +149,8 @@ std::vector<BroadPhasePair> findGridPairs(const std::vector<Aabb>& bounds,
 std::vector<BroadPhasePair> BroadPhase::findCandidatePairs(
     const std::vector<Aabb>& bounds, BroadPhaseStats* stats, BroadPhaseAlgorithm algorithm)
 {
+    if (algorithm == BroadPhaseAlgorithm::DynamicTree)
+        throw std::invalid_argument("DynamicTree requires a persistent DynamicAabbTree instance");
     if (algorithm == BroadPhaseAlgorithm::UniformGrid)
         return findGridPairs(bounds, stats);
     struct SweepEntry

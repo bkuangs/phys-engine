@@ -30,9 +30,10 @@ cmake --build build --config Debug
 See [performance history](docs/performance.md) for Debug/Release baselines,
 the measured sweep-and-prune gains, methodology, and reproduction commands.
 The headless benchmarks accept an optional backend after the sample count
-(`phys_collision_bench 10 sap` or `phys_collision_bench 10 grid`).
-The uniform grid is experimental; SAP remains the engine default.
-`phys_broadphase_compare` compares both backends on additional AABB layouts.
+(`phys_collision_bench 10 sap`, `10 grid`, or `10 tree`).
+The uniform grid and persistent dynamic AABB tree are experimental; SAP remains
+the engine default. `phys_broadphase_compare` compares all three backends on
+static and moving AABB layouts, including tree maintenance and initial construction.
 
 ## Pipeline
 

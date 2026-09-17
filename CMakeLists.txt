@@ -11,6 +11,7 @@ add_library(phys STATIC
     src/dynamics/mass_properties.cpp
     src/collision/aabb.cpp
     src/collision/broadphase.cpp
+    src/collision/dynamic_aabb_tree.cpp
     src/collision/narrowphase.cpp
     src/collision/sat.cpp
     src/collision/gjk.cpp

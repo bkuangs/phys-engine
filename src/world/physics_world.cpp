@@ -242,14 +242,52 @@ namespace phys
         }
 
         stats.broadPhaseCollectMs = elapsedMs(broadPhaseStart);
-        auto candidatePairs = BroadPhase::findCandidatePairs(
-            bounds, &stats.broadPhaseDetails, broadPhaseAlgorithm);
-        auto filterStart = Clock::now();
-        for (BroadPhasePair &pair : candidatePairs)
+        std::vector<BroadPhasePair> candidatePairs;
+        if (broadPhaseAlgorithm == BroadPhaseAlgorithm::DynamicTree)
         {
-            pair.first = colliderIndices[pair.first];
-            pair.second = colliderIndices[pair.second];
+            auto maintenanceStart = Clock::now();
+            std::size_t insertions = 0;
+            std::size_t removals = 0;
+            std::size_t reinsertions = 0;
+            for (uint32_t index = 0; index < colliderSlots.size(); ++index)
+            {
+                ColliderSlot &slot = colliderSlots[index];
+                bool valid = slot.alive && getBody(slot.collider.body);
+                if (slot.treeProxy != DynamicAabbTree::noProxy
+                    && (!valid || slot.treeGeneration != slot.generation))
+                {
+                    dynamicTree.destroyProxy(slot.treeProxy);
+                    slot.treeProxy = DynamicAabbTree::noProxy;
+                    ++removals;
+                }
+                if (!valid)
+                    continue;
+                if (slot.treeProxy == DynamicAabbTree::noProxy)
+                {
+                    slot.treeProxy = dynamicTree.createProxy(slot.collider.bounds, index);
+                    slot.treeGeneration = slot.generation;
+                    ++insertions;
+                }
+                else if (dynamicTree.updateProxy(slot.treeProxy, slot.collider.bounds))
+                    ++reinsertions;
+            }
+            double maintenanceMs = elapsedMs(maintenanceStart);
+            candidatePairs = dynamicTree.findCandidatePairs(&stats.broadPhaseDetails);
+            stats.broadPhaseDetails.recordBuildMs = maintenanceMs;
+            stats.broadPhaseDetails.treeInsertions = insertions;
+            stats.broadPhaseDetails.treeRemovals = removals;
+            stats.broadPhaseDetails.treeReinsertions = reinsertions;
         }
+        else
+            candidatePairs = BroadPhase::findCandidatePairs(
+                bounds, &stats.broadPhaseDetails, broadPhaseAlgorithm);
+        auto filterStart = Clock::now();
+        if (broadPhaseAlgorithm != BroadPhaseAlgorithm::DynamicTree)
+            for (BroadPhasePair &pair : candidatePairs)
+            {
+                pair.first = colliderIndices[pair.first];
+                pair.second = colliderIndices[pair.second];
+            }
         std::erase_if(candidatePairs, [&](const BroadPhasePair &pair) {
             return colliderSlots[pair.first].collider.body ==
                    colliderSlots[pair.second].collider.body;

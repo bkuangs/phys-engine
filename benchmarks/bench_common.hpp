@@ -19,6 +19,7 @@ struct BenchmarkReport
     BroadPhaseAlgorithm algorithm = BroadPhaseAlgorithm::SweepAndPrune;
 
     DurationStats::Summary stepTime;
+    double firstStepMs = 0.0;
     std::size_t deadlineMisses = 0;
 
     std::size_t possiblePairs = 0;
@@ -27,6 +28,9 @@ struct BenchmarkReport
     double broadPhaseCollectMeanMs = 0.0;
     double broadPhaseFilterMeanMs = 0.0;
     BroadPhaseStats broadPhaseDetails{}; // Mean timings; other fields from the last step.
+    std::size_t totalTreeInsertions = 0;
+    std::size_t totalTreeRemovals = 0;
+    std::size_t totalTreeReinsertions = 0;
 
     double narrowPhaseMeanMs = 0.0;
     double solverMeanMs = 0.0;

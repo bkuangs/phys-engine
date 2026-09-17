@@ -7,7 +7,8 @@ step time fell from **197.83 ms to 13.40 ms**, approximately **14.76x faster**.
 That is a substantial improvement, but still above the 8.33 ms budget for 120 Hz.
 The subsequent [contiguous-record experiment](#contiguous-record-experiment)
 improved SAP further using a fresh, repeated comparison.
-An opt-in [uniform-grid prototype](#uniform-grid-prototype) is evaluated below;
+Opt-in [uniform-grid](#uniform-grid-prototype) and
+[dynamic-tree](#dynamic-aabb-tree-experiment) prototypes are evaluated below;
 SAP remains the engine default.
 
 ## Comparable checkpoints
@@ -321,6 +322,106 @@ and extreme-coordinate inputs. A mixed sphere/rotating-box world on a large
 floor also evolves with matching poses and velocities under both backends.
 Default SAP behavior, pair ordering, and same-body filtering are retained.
 
+## Dynamic AABB tree experiment
+
+The profiling/grid work was committed as `80d60c2`, then the persistent-tree
+experiment was developed on `experiment/dynamic-aabb-tree`. The tree remains
+opt-in through the `tree` backend; the default was not changed.
+
+The implementation retains an index-based node pool between steps, tracks
+collider-slot generations, and expands leaf bounds by 10% of each axis extent
+(minimum padding 0.01). Proxies are reinserted when tight bounds escape that
+padding or shrink substantially. Height-balancing rotations also consider
+spatial area. Tight leaf bounds are checked before emitting canonical pairs,
+so fat bounds do not change the candidate set.
+
+### Refining the first version
+
+The first correct version was not a performance win. It restarted a root
+query for every leaf and used height-only rotations. At 10,000 bodies its
+median run mean was 17.14 ms. Spatially aware rotations reduced that to
+13.13 ms, but traversal remained dominant.
+
+The final version traverses overlapping subtree pairs once, starting at
+root/root. Within-subtree and cross-subtree work partition the unordered
+leaf pairs; overlapping distinct subtrees are split by area. This avoids
+repeated ancestor traversal without duplicating emitted pairs.
+
+The progression is recorded in the
+[initial full-world report](../benchmark-results-tree-initial-release.txt),
+[initial layouts](../benchmark-results-tree-initial-layouts-release.txt),
+[spatial-rotation report](../benchmark-results-tree-spatial-release.txt), and
+[spatial-rotation layouts](../benchmark-results-tree-spatial-layouts-release.txt).
+These are separate experimental batches, not an interleaved comparison of
+all three tree implementations. The final batch below contains fresh SAP
+and grid controls.
+
+### Full-world results, including maintenance
+
+The [final full-world report](../benchmark-results-tree-release.txt) uses
+three interleaved runs per backend, seed 42, argument `10`, and the same Release
+configuration. Each run starts with a fresh world and empty tree. Initial
+construction is included in the first step and in the reported means.
+
+Step columns are medians of per-run means; the last column is the median
+first-step time. All values are milliseconds:
+
+| Bodies | SAP | Grid | Tree | Tree first step |
+| ---: | ---: | ---: | ---: | ---: |
+| 100 | 0.03 | 0.06 | 0.03 | 0.07 |
+| 500 | 0.17 | 0.29 | 0.16 | 0.31 |
+| 1,000 | 0.42 | 0.63 | 0.37 | 0.67 |
+| 2,500 | 1.51 | 1.76 | 1.13 | 1.93 |
+| 5,000 | 2.93 | 3.04 | 2.28 | 4.37 |
+| 10,000 | 9.33 | 7.10 | 5.11 | 9.61 |
+
+At 10,000 bodies, the tree was approximately 1.83x faster than SAP and 1.39x
+faster than the grid in this batch. Tree maintenance averaged 0.8602 ms and
+paired traversal 3.0115 ms, using medians of the per-run means. Broadphase
+overall was 4.05 ms.
+
+The tree missed 4/75 deadlines, compared with SAP's 30/75 and the grid's
+20/75. Tree per-run p95 step times were 7.43-7.56 ms, but the median first
+step was 9.61 ms. Cold construction and occasional spikes still prevent a
+claim of guaranteed 120 Hz operation.
+
+The final step visited 245,464 node pairs, checked 6,785 tight leaf pairs,
+and emitted the same 2,969 AABB-overlap pairs as SAP/grid. Tree height was 16
+for 10,000 proxies. Node-pair visits are a different unit from the single-node
+visits in the earlier per-leaf-query reports, so their counts are not directly
+comparable. Each run performed 10,000 initial insertions and 32,580 subsequent
+reinsertions; maintenance was not omitted from the measurements.
+
+### Moving and mixed-size layouts
+
+The [final layout report](../benchmark-results-tree-layouts-release.txt)
+compares static and moving/resizing AABBs. It times initial construction,
+incremental maintenance, and querying together. Motion and reference-pair
+generation are outside timing for all backends. Each tree persists across
+the ten samples rather than being rebuilt each time.
+
+At 10,000 AABBs, the moving-case mean maintenance-plus-query times were:
+
+| Layout | SAP | Grid | Tree |
+| --- | ---: | ---: | ---: |
+| Uniform | 8.32 ms | 6.33 ms | 4.41 ms |
+| Eight clusters | 27.26 ms | 19.30 ms | 11.74 ms |
+| Mixed rotated boxes and a large floor | 13.00 ms | 6.91 ms | 6.67 ms |
+| Wide-size rotated cubes | 22.29 ms | 118.83 ms | 16.48 ms |
+
+The tree avoids the grid's expensive oversized-object comparison list, but
+is not uniformly faster: at 1,000 AABBs, the moving wide-size query was
+1.05 ms versus SAP's 0.71 ms. The mixed-floor advantage over the grid at
+10,000 AABBs is small enough to warrant more samples. These query benchmarks
+are not complete mixed-shape simulation steps.
+
+Exact pair order and evolving world states match the existing backends.
+Coverage includes fat-bound false positives, movement inside padding,
+resizing, deletion/reuse, backend switching, tree copy/move behavior, and
+invalid proxy operations. Address/undefined-behavior sanitizer runs cover
+the tree and world integration stress cases. These results support further
+evaluation on this branch, not an automatic default switch.
+
 ## Reproducing the Release workload
 
 Build the selected source revision in a separate directory to leave the
@@ -337,16 +438,17 @@ cmake --build build/release-bench --target phys_collision_bench -j 4
 ```
 
 The algorithm argument is optional and defaults to `sap`. To compare the
-experimental backend, use the same sample argument:
+experimental backends, use the same sample argument:
 
 ```sh
 ./build/release-bench/phys_collision_bench 10 sap
 ./build/release-bench/phys_collision_bench 10 grid
+./build/release-bench/phys_collision_bench 10 tree
 cmake --build build/release-bench --target phys_broadphase_compare -j 4
 ./build/release-bench/phys_broadphase_compare 10
 ```
 
-`phys_broadphase_bench` accepts the same optional `sap`/`grid` argument as
+`phys_broadphase_bench` accepts the same optional `sap`/`grid`/`tree` argument as
 `phys_collision_bench`; both run the full-world sphere workload.
 
 These commands benchmark the currently checked-out code. Use `fd8f5a1` for the

@@ -55,6 +55,7 @@ namespace phys::bench
         double broadPhaseCollectTotalMs = 0.0;
         double broadPhaseFilterTotalMs = 0.0;
         BroadPhaseStats broadPhaseTotals{};
+        double firstStepMs = 0.0;
         std::size_t deadlineMisses = 0;
         std::size_t totalAllocations = 0;
 
@@ -63,6 +64,8 @@ namespace phys::bench
             ScopedAllocCounter allocs;
             world.step(dt);
             const StepStats &stats = world.lastStepStats();
+            if (i == 0)
+                firstStepMs = stats.totalMs;
 
             stepStats.record(stats.totalMs);
             broadPhaseStats.record(stats.broadPhaseMs);
@@ -74,6 +77,9 @@ namespace phys::bench
             broadPhaseTotals.recordSortMs += stats.broadPhaseDetails.recordSortMs;
             broadPhaseTotals.sweepMs += stats.broadPhaseDetails.sweepMs;
             broadPhaseTotals.pairSortMs += stats.broadPhaseDetails.pairSortMs;
+            broadPhaseTotals.treeInsertions += stats.broadPhaseDetails.treeInsertions;
+            broadPhaseTotals.treeRemovals += stats.broadPhaseDetails.treeRemovals;
+            broadPhaseTotals.treeReinsertions += stats.broadPhaseDetails.treeReinsertions;
             if (stats.totalMs > deadlineMs)
                 ++deadlineMisses;
             totalAllocations += allocs.count();
@@ -87,11 +93,15 @@ namespace phys::bench
         report.sampleCount = sampleCount;
         report.algorithm = algorithm;
         report.stepTime = stepStats.summarize();
+        report.firstStepMs = firstStepMs;
         report.deadlineMisses = deadlineMisses;
         report.possiblePairs = lastStats.possiblePairs;
         report.candidatePairs = lastStats.candidatePairs;
         report.broadPhaseMeanMs = broadPhaseStats.summarize().mean;
         report.broadPhaseDetails = lastStats.broadPhaseDetails;
+        report.totalTreeInsertions = broadPhaseTotals.treeInsertions;
+        report.totalTreeRemovals = broadPhaseTotals.treeRemovals;
+        report.totalTreeReinsertions = broadPhaseTotals.treeReinsertions;
         if (sampleCount > 0)
         {
             double samples = static_cast<double>(sampleCount);
@@ -134,12 +144,15 @@ namespace phys::bench
     void BenchmarkReport::print(std::ostream &out) const
     {
         bool grid = algorithm == BroadPhaseAlgorithm::UniformGrid;
+        bool tree = algorithm == BroadPhaseAlgorithm::DynamicTree;
         out << std::fixed << std::setprecision(2);
         out << "Bodies:                     " << bodyCount << "\n";
         out << "Simulation frequency:       " << simulationHz << " Hz\n";
-        out << "Broadphase algorithm:       " << (grid ? "uniform grid" : "sweep-and-prune") << "\n\n";
+        out << "Broadphase algorithm:       "
+            << (tree ? "dynamic AABB tree" : grid ? "uniform grid" : "sweep-and-prune") << "\n\n";
 
         out << "Step time:\n";
+        out << "    first:                   " << firstStepMs << " ms\n";
         out << "    mean:                    " << stepTime.mean << " ms\n";
         out << "    p50:                     " << stepTime.p50 << " ms\n";
         out << "    p95:                     " << stepTime.p95 << " ms\n";
@@ -156,18 +169,29 @@ namespace phys::bench
 
         out << "Broadphase detail (mean timings):\n" << std::setprecision(4);
         out << "    collect active bounds:   " << broadPhaseCollectMeanMs << " ms\n";
-        out << (grid ? "    build grid entries:      " : "    build sweep records:     ")
+        out << (tree ? "    maintain tree:           "
+                     : grid ? "    build grid entries:      " : "    build sweep records:     ")
             << broadPhaseDetails.recordBuildMs << " ms\n";
-        out << (grid ? "    sort grid entries:       " : "    sort sweep records:      ")
-            << broadPhaseDetails.recordSortMs << " ms\n";
-        out << (grid ? "    grid scan + overflow:    " : "    sweep + emit pairs:      ")
+        if (!tree)
+            out << (grid ? "    sort grid entries:       " : "    sort sweep records:      ")
+                << broadPhaseDetails.recordSortMs << " ms\n";
+        out << (tree ? "    query tree:              "
+                     : grid ? "    grid scan + overflow:    " : "    sweep + emit pairs:      ")
             << broadPhaseDetails.sweepMs << " ms\n";
         out << (grid ? "    sort/deduplicate pairs:  " : "    sort output pairs:       ")
             << broadPhaseDetails.pairSortMs << " ms\n";
         out << "    map/filter pairs:        " << broadPhaseFilterMeanMs << " ms\n\n";
         out << std::setprecision(2);
         out << "Broadphase work (last step):\n";
-        if (grid)
+        if (tree)
+        {
+            out << "    tree proxies:            " << broadPhaseDetails.treeProxyCount << "\n";
+            out << "    tree height:             " << broadPhaseDetails.treeHeight << "\n";
+            out << "    tree node-pair visits:   " << broadPhaseDetails.treeNodePairVisits << "\n";
+            out << "    tight leaf checks:       " << broadPhaseDetails.treeLeafChecks << "\n";
+            out << "    proxy reinsertions:      " << broadPhaseDetails.treeReinsertions << "\n";
+        }
+        else if (grid)
         {
             out << "    grid pair comparisons:   " << broadPhaseDetails.gridComparisons << "\n";
             out << "    cell entries:            " << broadPhaseDetails.gridEntries << "\n";
@@ -178,6 +202,13 @@ namespace phys::bench
         else
             out << "    X-window comparisons:    " << broadPhaseDetails.xWindowComparisons << "\n";
         out << "    AABB pairs (pre-filter):  " << broadPhaseDetails.aabbPairs << "\n\n";
+        if (tree)
+        {
+            out << "Tree maintenance work (whole run):\n";
+            out << "    insertions:              " << totalTreeInsertions << "\n";
+            out << "    removals:                " << totalTreeRemovals << "\n";
+            out << "    reinsertions:            " << totalTreeReinsertions << "\n\n";
+        }
 
         out << "Narrowphase time:            " << narrowPhaseMeanMs << " ms\n";
         out << "Solver time:                 " << solverMeanMs << " ms\n\n";
@@ -195,7 +226,12 @@ namespace phys::bench
             algorithm = BroadPhaseAlgorithm::UniformGrid;
             return true;
         }
-        std::cerr << "Unknown broadphase '" << argv[2] << "': expected sap or grid\n";
+        if (std::string(argv[2]) == "tree")
+        {
+            algorithm = BroadPhaseAlgorithm::DynamicTree;
+            return true;
+        }
+        std::cerr << "Unknown broadphase '" << argv[2] << "': expected sap, grid, or tree\n";
         return false;
     }
 

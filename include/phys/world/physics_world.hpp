@@ -5,6 +5,7 @@
 #include "phys/math/vec3.hpp"
 #include "phys/dynamics/rigid_body.hpp"
 #include "phys/collision/broadphase.hpp"
+#include "phys/collision/dynamic_aabb_tree.hpp"
 #include "phys/collision/collider.hpp"
 #include "phys/collision/manifold.hpp"
 #include "phys/world/body_handle.hpp"
@@ -83,9 +84,12 @@ namespace phys
             Collider collider;
             uint32_t generation = 0;
             bool alive = false;
+            DynamicAabbTree::ProxyId treeProxy = DynamicAabbTree::noProxy;
+            uint32_t treeGeneration = 0;
         };
 
         std::vector<ColliderSlot> colliderSlots;
+        DynamicAabbTree dynamicTree;
         std::vector<uint32_t> freeColliderList;
         std::vector<ContactManifold> currentContacts;
         std::vector<CachedContact> cachedContacts;

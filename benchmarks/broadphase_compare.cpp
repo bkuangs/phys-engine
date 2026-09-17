@@ -1,6 +1,7 @@
 #include "alloc_counter.hpp"
 #include "bench_common.hpp"
 #include <phys/collision/broadphase.hpp>
+#include <phys/collision/dynamic_aabb_tree.hpp>
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -52,30 +53,75 @@ std::vector<phys::Aabb> makeBounds(Layout layout, std::size_t count)
     return bounds;
 }
 
-bool compare(Layout layout, const char* name, std::size_t count, std::size_t samples)
+bool compare(Layout layout, const char* name, std::size_t count, std::size_t samples, bool moving)
 {
     auto bounds = makeBounds(layout, count);
-    auto expected = phys::BroadPhase::findCandidatePairs(bounds);
-    std::array<phys::bench::DurationStats, 2> times;
-    std::array<std::size_t, 2> allocations{};
-    std::array<phys::BroadPhaseStats, 2> stats{};
+    std::array<phys::bench::DurationStats, 3> times;
+    std::array<std::size_t, 3> allocations{};
+    std::array<double, 3> firstTimes{};
+    std::array<phys::BroadPhaseStats, 3> stats{};
     std::array algorithms{phys::BroadPhaseAlgorithm::SweepAndPrune,
-                          phys::BroadPhaseAlgorithm::UniformGrid};
+                          phys::BroadPhaseAlgorithm::UniformGrid,
+                          phys::BroadPhaseAlgorithm::DynamicTree};
+    std::array names{"sap", "grid", "tree"};
+    phys::DynamicAabbTree tree;
+    std::vector<phys::DynamicAabbTree::ProxyId> proxies(count, phys::DynamicAabbTree::noProxy);
+    std::size_t totalInsertions = 0;
+    std::size_t totalReinsertions = 0;
     for (std::size_t iteration = 0; iteration < samples; ++iteration) {
-        for (std::size_t offset = 0; offset < 2; ++offset) {
-            std::size_t algorithm = (iteration + offset) % 2;
+        if (moving && iteration > 0) {
+            for (std::size_t index = 0; index < bounds.size(); ++index) {
+                if (layout == Layout::MixedFloor && index == 0)
+                    continue;
+                phys::Vec3 motion{
+                    static_cast<float>(static_cast<int>(index % 7) - 3) * 0.015f,
+                    static_cast<float>(static_cast<int>(index % 5) - 2) * 0.01f,
+                    static_cast<float>(static_cast<int>(index % 3) - 1) * 0.02f};
+                bounds[index].min += motion;
+                bounds[index].max += motion;
+                if (iteration == samples / 2 && index % 25 == 0) {
+                    phys::Vec3 center = (bounds[index].min + bounds[index].max) * 0.5f;
+                    phys::Vec3 halfExtents = (bounds[index].max - bounds[index].min) * 0.6f;
+                    bounds[index] = {center - halfExtents, center + halfExtents};
+                }
+            }
+        }
+        auto expected = phys::BroadPhase::findCandidatePairs(bounds);
+        for (std::size_t offset = 0; offset < algorithms.size(); ++offset) {
+            std::size_t algorithm = (iteration + offset) % algorithms.size();
             std::vector<phys::BroadPhasePair> actual;
             double elapsed;
             {
                 phys::bench::ScopedAllocCounter counter;
                 auto start = std::chrono::steady_clock::now();
-                actual = phys::BroadPhase::findCandidatePairs(
-                    bounds, &stats[algorithm], algorithms[algorithm]);
+                if (algorithms[algorithm] == phys::BroadPhaseAlgorithm::DynamicTree) {
+                    std::size_t insertions = 0;
+                    std::size_t reinsertions = 0;
+                    for (std::size_t index = 0; index < count; ++index) {
+                        if (proxies[index] == phys::DynamicAabbTree::noProxy) {
+                            proxies[index] = tree.createProxy(bounds[index], index);
+                            ++insertions;
+                        }
+                        else if (tree.updateProxy(proxies[index], bounds[index]))
+                            ++reinsertions;
+                    }
+                    double maintenanceMs = std::chrono::duration<double, std::milli>(
+                        std::chrono::steady_clock::now() - start).count();
+                    actual = tree.findCandidatePairs(&stats[algorithm]);
+                    stats[algorithm].recordBuildMs = maintenanceMs;
+                    totalInsertions += insertions;
+                    totalReinsertions += reinsertions;
+                }
+                else
+                    actual = phys::BroadPhase::findCandidatePairs(
+                        bounds, &stats[algorithm], algorithms[algorithm]);
                 elapsed = std::chrono::duration<double, std::milli>(
                     std::chrono::steady_clock::now() - start).count();
                 allocations[algorithm] += counter.count();
             }
             times[algorithm].record(elapsed);
+            if (iteration == 0)
+                firstTimes[algorithm] = elapsed;
             if (actual.size() != expected.size()
                 || !std::equal(actual.begin(), actual.end(), expected.begin(),
                     [](const auto& left, const auto& right) {
@@ -86,15 +132,20 @@ bool compare(Layout layout, const char* name, std::size_t count, std::size_t sam
             }
         }
     }
-    for (std::size_t algorithm = 0; algorithm < 2; ++algorithm) {
+    for (std::size_t algorithm = 0; algorithm < algorithms.size(); ++algorithm) {
         const auto summary = times[algorithm].summarize();
         const auto& work = stats[algorithm];
-        std::cout << name << ',' << count << ',' << (algorithm ? "grid" : "sap")
-                  << ',' << samples << ',' << summary.mean << ',' << summary.p95
+        bool dynamic = algorithms[algorithm] == phys::BroadPhaseAlgorithm::DynamicTree;
+        std::cout << name << ',' << (moving ? "moving" : "static") << ',' << count << ',' << names[algorithm]
+                  << ',' << samples << ',' << summary.mean << ',' << summary.p50 << ',' << summary.p95
+                  << ',' << firstTimes[algorithm]
                   << ',' << allocations[algorithm] / samples
-                  << ',' << (algorithm ? work.gridComparisons : work.xWindowComparisons)
+                  << ',' << (dynamic ? work.treeLeafChecks : algorithm ? work.gridComparisons : work.xWindowComparisons)
                   << ',' << work.aabbPairs << ',' << work.gridEntries
-                  << ',' << work.gridOverflowAabbs << ',' << work.gridCellSize << '\n';
+                  << ',' << work.gridOverflowAabbs << ',' << work.gridCellSize
+                  << ',' << work.treeNodePairVisits << ',' << work.treeHeight
+                  << ',' << (dynamic ? totalInsertions : 0)
+                  << ',' << (dynamic ? totalReinsertions : 0) << '\n';
     }
     return true;
 }
@@ -104,16 +155,19 @@ bool compare(Layout layout, const char* name, std::size_t count, std::size_t sam
 int main(int argc, char** argv)
 {
     const auto samples = static_cast<std::size_t>(phys::bench::parseSampleCount(argc, argv, 10));
-    std::cout << "Standalone broadphase queries; fixed seed 42; static bounds; alternating SAP/grid\n"
+    std::cout << "Standalone maintenance + queries; fixed seed 42; interleaved SAP/grid/tree\n"
+              << "Tree construction is included in the first sample; tree persists across samples.\n"
               << "Every result is compared with SAP outside the timed region.\n"
-              << "layout,aabbs,algorithm,samples,mean_ms,p95_ms,allocations,pair_checks,emitted_pairs,cell_entries,overflow_aabbs,cell_width\n"
+              << "layout,motion,aabbs,algorithm,samples,mean_ms,p50_ms,p95_ms,first_ms,allocations,pair_checks,emitted_pairs,cell_entries,overflow_aabbs,cell_width,node_pair_visits,tree_height,insertions,reinsertions\n"
               << std::fixed << std::setprecision(4);
     for (std::size_t count : {1000, 10000}) {
-        if (!compare(Layout::Uniform, "uniform", count, samples)
-            || !compare(Layout::Clustered, "clustered", count, samples)
-            || !compare(Layout::MixedFloor, "mixed-floor", count, samples)
-            || !compare(Layout::WideSizes, "wide-sizes", count, samples))
-            return 1;
+        for (bool moving : {false, true}) {
+            if (!compare(Layout::Uniform, "uniform", count, samples, moving)
+                || !compare(Layout::Clustered, "clustered", count, samples, moving)
+                || !compare(Layout::MixedFloor, "mixed-floor", count, samples, moving)
+                || !compare(Layout::WideSizes, "wide-sizes", count, samples, moving))
+                return 1;
+        }
     }
     return 0;
 }

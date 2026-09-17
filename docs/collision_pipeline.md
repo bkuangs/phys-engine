@@ -21,8 +21,9 @@ then stops; the remaining AABB axes reject false candidates. Touching bounds
 are included. Dense overlap along X can still require quadratic scanning.
 A candidate means only that a narrow-phase query may be necessary.
 
-`PhysicsWorld::step()` calls `BroadPhase::findCandidatePairs()` and maps its
-input indices back to live collider slots. Pairs are generated once and sorted
+For SAP/grid, `PhysicsWorld::step()` calls `BroadPhase::findCandidatePairs()` and
+maps its input indices back to live collider slots. The persistent tree retains
+collider-slot indices directly. Pairs are generated once and sorted
 into the original collider-slot order to keep solver ordering deterministic;
 colliders belonging to the same body are excluded. Bounds are refreshed from the
 current body poses before pair generation and conservatively contain the
@@ -34,8 +35,8 @@ spatial rejection, using per-body counts rather than an all-pairs loop.
 The brute-force implementation is retained as a test oracle, and the recorded
 naive/Release reports remain performance baselines.
 
-Later compare persistent SAP endpoints, a dynamic AABB tree, or another justified
-spatial structure against the same workloads and baseline pair results.
+Compare the experimental grid/tree backends and future persistent SAP endpoints
+against the same workloads and baseline pair results.
 Report false-positive counts alongside timings; faster execution is not useful
 if valid pairs are lost.
 
@@ -43,7 +44,7 @@ if valid pairs are lost.
 
 Set `PhysicsWorld::broadPhaseAlgorithm` to
 `BroadPhaseAlgorithm::UniformGrid` to opt into the grid prototype. SAP remains
-the default; both backends return the same canonical, sorted AABB-overlap pairs.
+the default; all backends return the same canonical, sorted AABB-overlap pairs.
 The grid uses the upper median of positive maximum AABB side lengths as its
 cell width. An all-point/empty input uses a width of one.
 
@@ -58,6 +59,38 @@ Overflow AABBs are checked against regular objects and each other without
 dropping any pairs. This bounds cell storage, but many overflow objects can
 make the comparison path expensive. Wide-size workloads demonstrate this
 limitation; a large floor alone is much less costly.
+
+### Experimental dynamic AABB tree
+
+Set `PhysicsWorld::broadPhaseAlgorithm` to `BroadPhaseAlgorithm::DynamicTree`
+to use the persistent tree. The stateless `BroadPhase::findCandidatePairs()`
+rejects this selection; direct users must retain a `DynamicAabbTree` instance
+and create, update, and destroy its proxies.
+
+Nodes live in an index-based pool with an internal free list. Insertion chooses
+a sibling using greedy surface-area growth. Height-balancing rotations keep
+taller grandchildren higher and use bounding area to choose between equal-height
+alternatives. Pool capacity is retained for reuse.
+
+Leaf bounds are expanded by 10% of each axis extent, with a minimum padding of
+0.01 world units, clamped to finite float bounds. Tight bounds are refreshed on
+every update. Reinsertion occurs when they escape the fat bounds, or when the
+old fat bounds no longer fit inside a four-padding envelope around a shrunken
+object. This avoids rebuilding the entire tree each frame.
+
+Each world collider slot records its tree proxy and the collider generation
+used to create it. The next tree broadphase pass removes dead or stale-generation
+proxies before inserting/updating live ones. This also handles removal and slot
+reuse while another backend is selected. Destroyed proxy IDs must be discarded:
+the node pool may recycle them. Invalid direct proxy operations or invalid
+bounds are rejected explicitly.
+
+Pair generation begins with the root paired with itself. Same-subtree work is
+split into left/left, right/right, and left/right cases; overlapping distinct
+subtrees are split by area. This partitions leaf pairs without duplicates,
+avoiding a fresh root traversal for every object. Fat bounds guide traversal,
+but tight leaf AABBs are checked before pairs are emitted. Canonical sorting
+and the world's same-body filter preserve the existing solver order.
 
 ### Broad-phase measurements
 
@@ -81,9 +114,19 @@ actual AABB tests, including repeat tests in shared cells and overflow checks.
 `gridEntries`, `gridOverflowAabbs`, and `gridCellSize` expose storage amplification
 and the overflow policy. `aabbPairs` counts unique output pairs after deduplication.
 
+For tree queries, `recordBuildMs` records the world's proxy synchronization and
+maintenance, `recordSortMs` is zero, `sweepMs` records paired traversal, and
+`pairSortMs` records canonical output sorting. Direct tree query statistics
+contain query/sort timings only; the world and comparison benchmark add the
+maintenance cost. Tree counters report insertions, removals, reinsertions,
+node-pair visits, tight-leaf checks, height, and live proxy count.
+Node-pair visits include hierarchy work and are not equivalent to tight pair
+checks or the single-node visits used by the initial tree prototype.
+
 The optional query statistics are overwritten on every call, including empty
 queries. Benchmarks print mean phase durations and explicitly label the work
-counts as belonging to the last simulated step.
+counts as belonging to the last simulated step. Tree mutation totals are also
+reported across the whole run. First-step time exposes cold tree construction.
 
 ## Narrow phase
 
@@ -140,10 +183,14 @@ stability. Broad-phase coverage compares exact ordered pairs with an all-pairs
 reference for empty, touching, degenerate, dense, random, and moving bounds.
 World-level checks cover same-body filtering, collider-local transforms,
 inactive slots, and body/collider slot reuse.
-Both backends also match brute force for large floors, negative cell boundaries,
+All backends also match brute force for large floors, negative cell boundaries,
 extreme coordinates, and degenerate bounds. Grid-specific checks cover the exact
 64-cell threshold and duplicate suppression. A mixed sphere/rotating-box world
 is stepped with each backend and compared for matching poses and velocities.
+Tree coverage additionally stresses sorted insertion, moving/resizing proxies,
+deletion/reuse, backend switches, copy/move semantics, fat-bound false positives,
+and invalid proxy operations. Memory and undefined-behavior sanitizer runs cover
+the tree and world integration cases.
 Additional coverage should include narrow-phase touching semantics, degenerate
 inputs, pair symmetry, and multi-point box manifolds.
 
@@ -154,8 +201,10 @@ shape-pair queries from world stepping, scene setup, and visualization, and
 report false positives alongside timings. Benchmark runs should disclose
 workload, build configuration, hardware, and algorithm settings.
 
-`phys_broadphase_compare` isolates the two broadphase queries on uniform,
-clustered, mixed-size-with-floor, and wide-size AABB layouts. Its inputs are
-static between samples, and exact output equality is checked outside the timed
-query. These query timings must not be confused with the full-world sphere
-timings from `phys_collision_bench` and `phys_broadphase_bench`.
+`phys_broadphase_compare` compares all three backends on uniform, clustered,
+mixed-size-with-floor, and wide-size AABB layouts, with static and moving/resizing
+variants. Tree construction is included in the first timed sample; the tree
+then persists, with proxy maintenance and queries timed together. Fixture
+motion and exact output checks are outside timing for every backend.
+These timings must not be confused with the full-world sphere timings from
+`phys_collision_bench` and `phys_broadphase_bench`.
