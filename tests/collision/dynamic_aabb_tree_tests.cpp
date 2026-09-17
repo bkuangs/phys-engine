@@ -1,16 +1,19 @@
 #include <phys/collision/dynamic_aabb_tree.hpp>
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <iostream>
 #include <limits>
 #include <random>
 #include <stdexcept>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
 namespace {
 
 using Tree = phys::DynamicAabbTree;
+static_assert(std::is_same_v<Tree::ProxyId, std::size_t>);
 
 struct Proxy
 {
@@ -128,6 +131,11 @@ bool testBalancedLifecycle()
     }
     const auto snapshot = proxies;
     Tree copy = tree;
+    Tree assigned;
+    assigned.createProxy({{1000, 1000, 1000}, {1001, 1001, 1001}}, 1);
+    assigned = tree;
+    if (!matchesBruteForce(assigned, proxies))
+        return false;
     Tree moved = std::move(copy);
     if (copy.size() != 0 || !copy.findCandidatePairs().empty()
         || !matchesBruteForce(moved, proxies))
@@ -141,9 +149,51 @@ bool testBalancedLifecycle()
             tree.destroyProxy(proxy.id);
         proxy.id = Tree::noProxy;
     }
-    if (!matchesBruteForce(tree, proxies) || !matchesBruteForce(copy, snapshot))
+    if (!matchesBruteForce(tree, proxies) || !matchesBruteForce(copy, snapshot)
+        || !matchesBruteForce(assigned, snapshot))
         return false;
     proxies[0].id = tree.createProxy(proxies[0].bounds, proxies[0].userIndex);
+    return matchesBruteForce(tree, proxies);
+}
+
+bool testProxyReuseAndWideIds()
+{
+    Tree tree;
+    std::vector<Proxy> proxies{
+        {Tree::noProxy, {{0, 0, 0}, {1, 1, 1}}, 10},
+        {Tree::noProxy, {{10, 0, 0}, {11, 1, 1}}, 20},
+        {Tree::noProxy, {{0.5f, 0, 0}, {1.5f, 1, 1}}, std::numeric_limits<std::size_t>::max() - 1}};
+    for (auto& proxy : proxies)
+        proxy.id = tree.createProxy(proxy.bounds, proxy.userIndex);
+    if (!matchesBruteForce(tree, proxies))
+        return false;
+
+    tree.destroyProxy(proxies[0].id);
+    proxies[0].id = Tree::noProxy;
+    proxies[2].bounds = {{0.55f, 0, 0}, {1.55f, 1, 1}};
+    if (tree.updateProxy(proxies[2].id, proxies[2].bounds)
+        || !matchesBruteForce(tree, proxies)) {
+        std::cerr << "removing another proxy invalidated a live proxy\n";
+        return false;
+    }
+    proxies[0].bounds = {{10.5f, 0, 0}, {11.5f, 1, 1}};
+    proxies[0].id = tree.createProxy(proxies[0].bounds, proxies[0].userIndex);
+    tree.destroyProxy(proxies[1].id);
+    proxies[1].bounds = {{0.6f, 0, 0}, {1.6f, 1, 1}};
+    proxies[1].id = tree.createProxy(proxies[1].bounds, proxies[1].userIndex);
+    if (!matchesBruteForce(tree, proxies))
+        return false;
+
+    if constexpr (sizeof(Tree::ProxyId) > sizeof(std::uint32_t)) {
+        Tree::ProxyId truncatedAlias = static_cast<Tree::ProxyId>(
+            std::numeric_limits<std::uint32_t>::max()) + 1 + proxies[0].id;
+        try {
+            tree.updateProxy(truncatedAlias, {{50, 50, 50}, {51, 51, 51}});
+            std::cerr << "wide invalid proxy was truncated to a live node\n";
+            return false;
+        }
+        catch (const std::invalid_argument&) {}
+    }
     return matchesBruteForce(tree, proxies);
 }
 
@@ -183,5 +233,6 @@ bool testInvalidCalls()
 
 int main()
 {
-    return testFatBoundsAndResizing() && testBalancedLifecycle() && testInvalidCalls() ? 0 : 1;
+    return testFatBoundsAndResizing() && testBalancedLifecycle()
+        && testProxyReuseAndWideIds() && testInvalidCalls() ? 0 : 1;
 }

@@ -422,6 +422,104 @@ invalid proxy operations. Address/undefined-behavior sanitizer runs cover
 the tree and world integration stress cases. These results support further
 evaluation on this branch, not an automatic default switch.
 
+## Compact-node trials (not adopted)
+
+The completed tree experiment was committed as `ddfc6a5` before these trials.
+Two smaller layouts were then compared with preserved Release executables from
+that commit. Each version ran three times in interleaved order, with the same
+seed, sample argument `10`, fat bounds, topology decisions, and paired traversal.
+
+Compiler record-layout output confirmed the original node is 88 bytes on this
+arm64 build. The two trial layouts were:
+
+| Trial | Storage design | Original 10,000-body step | Trial step |
+| --- | --- | ---: | ---: |
+| Hot/cold split | 32-byte traversal node, 8-byte per-node metadata, 40-byte payload per live leaf | 4.97 ms | 5.02 ms |
+| Compact inline | 72-byte node, with bounds and 32-bit child links in its first 32 bytes | 4.91 ms | 5.27 ms |
+
+Step times are medians of three per-run means. Each row has its own fresh
+control batch; the trial timings should not be ranked as if they came from
+one shared three-way run.
+
+At 10,000 leaves, the hot/cold split reduced logical node/leaf storage by roughly
+32%, excluding vector capacity slack and container overhead. The inline version
+reduced per-node size by about 18%. Both retained
+the public `size_t` proxy/user-index types and checked narrowing to internal
+32-bit indices.
+
+The memory reductions did not translate into a convincing overall throughput
+gain. The hot/cold split improved the 5,000-body mean from 2.25 to 2.10 ms and
+some standalone query layouts, but its 10,000-body result was effectively flat.
+It also introduced additional pools and payload-relocation bookkeeping.
+The simpler inline layout regressed the 10,000-body mean in its batch and
+was generally flat or slightly slower across the moving query layouts.
+
+Pair counts, node-pair visits, leaf checks, heights, and reinsertion counts
+matched exactly across the versions, so these differences were not produced
+by pruning different work. The trials passed the existing geometry/lifecycle
+and sanitizer cases. Additional coverage for copy assignment, proxy reuse,
+full-width user indices, and invalid high-bit proxy IDs is retained.
+
+**Neither layout was adopted.** The production tree was restored exactly to
+`ddfc6a5`; it still uses the original 88-byte node on this platform. The
+experiments do not establish node footprint as the main limiting factor, and
+short-run differences on a shared machine should not be overstated.
+
+The measurements are retained in the
+[hot/cold world report](../benchmark-results-tree-hotcold-release.txt),
+[hot/cold layout report](../benchmark-results-tree-hotcold-layouts-release.txt),
+[inline world report](../benchmark-results-tree-compact-release.txt), and
+[inline layout report](../benchmark-results-tree-compact-layouts-release.txt).
+
+## Surface-area caching trials (not adopted)
+
+The next experiment cached each node's fat-bound surface area in a `double`,
+reusing it during paired traversal and insertion-cost calculations. The cache
+was refreshed on creation, reinsertion, and internal refit. Existing member
+ordering was otherwise retained, with the new value next to its fat bounds.
+Compiler layout output showed node size increasing from 88 to 96 bytes.
+
+Both trials used preserved uncached executables from `ddfc6a5`, three
+interleaved runs per version, seed 42, and argument `10`. Total step timings
+include maintenance, initial construction, and cache initialization.
+
+The initial eager-refit version reduced the 10,000-body query mean from
+2.9331 to 2.6438 ms, but maintenance rose from 0.8434 to 1.0490 ms. The
+full-step result was nearly flat: 4.98 to 4.92 ms. At 5,000 bodies, the
+step mean increased from 2.19 to 2.31 ms.
+
+A second version skipped cache recomputation when a refit's fat bounds were
+unchanged, while still updating height. Its fresh comparison was:
+
+| Bodies | Uncached step | Guarded-cache step | Uncached maintenance | Cached maintenance | Uncached query | Cached query |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 5,000 | 2.23 ms | 2.31 ms | 0.6822 ms | 0.8684 ms | 1.2810 ms | 1.1673 ms |
+| 10,000 | 5.05 ms | 4.91 ms | 0.8693 ms | 1.0323 ms | 2.9698 ms | 2.6492 ms |
+
+These are medians of per-run means, not pooled step percentiles. The two body
+counts also use different run lengths: 100 steps at 5,000 bodies and 25 at
+10,000. Their maintenance/query ratios differ; the comparisons within each
+row use identical workloads.
+
+Static standalone queries generally showed roughly 1.06-1.11x speedups at 10,000
+AABBs in the guarded trial. Moving queries had smaller, mixed changes;
+uniform moving queries were slightly slower. Both versions preserved exact
+pair counts, traversal counts, heights, reinsertion counts, and allocation
+counts. The geometry/lifecycle and sanitizer cases passed.
+
+**The cache was not adopted.** It improved queries but increased maintenance
+and node storage, without a convincing overall moving-world win. The results
+do not isolate extra arithmetic, writes, and larger-record cache effects.
+The original uncached implementation was restored exactly to `ddfc6a5`.
+A CPU sampling profile is a better next investigation than another speculative
+layout or cache change.
+
+Raw results are retained in the
+[eager full-world report](../benchmark-results-tree-area-cache-eager-release.txt),
+[eager layout report](../benchmark-results-tree-area-cache-eager-layouts-release.txt),
+[guarded full-world report](../benchmark-results-tree-area-cache-release.txt), and
+[guarded layout report](../benchmark-results-tree-area-cache-layouts-release.txt).
+
 ## Reproducing the Release workload
 
 Build the selected source revision in a separate directory to leave the
