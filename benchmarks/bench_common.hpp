@@ -21,6 +21,7 @@ struct ScalingOptions
     ScalingScene scene = ScalingScene::MixedFloor;
     bool sleepingEnabled = false;
     std::size_t narrowPhaseWorkers = 1;
+    std::size_t solverWorkers = 1;
 };
 
 struct BenchmarkObject
@@ -101,6 +102,11 @@ struct BenchmarkReport
     double solverWarmStartComparisonsPerStep = 0.0;
     double solverWarmStartMatchesPerStep = 0.0;
     double solverVelocityPointVisitsPerStep = 0.0;
+    double solverIslandsPerStep = 0.0;
+    double solverLargestIslandContactsPerStep = 0.0;
+    double solverLargestIslandPointsPerStep = 0.0;
+    std::size_t solverMaxIslandContacts = 0;
+    std::size_t solverMaxIslandPoints = 0;
 
     double allocationsPerStep = 0.0;
     std::size_t totalAllocations = 0;
@@ -116,6 +122,7 @@ struct BenchmarkReport
     float finalMaxAngularSpeed = 0.0f;
     bool sleepingEnabled = false;
     std::size_t narrowPhaseWorkers = 1;
+    std::size_t solverWorkers = 1;
     double meanAwakeBodies = 0.0;
     double meanSleepingBodies = 0.0;
     double meanSolvedContacts = 0.0;

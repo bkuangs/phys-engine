@@ -4,16 +4,11 @@
 #include <phys/solver/sequential_impulse_solver.hpp>
 #include "step_workspace.hpp"
 #include <algorithm>
-#include <atomic>
 #include <chrono>
 #include <cmath>
-#include <condition_variable>
 #include <cstdint>
-#include <exception>
 #include <limits>
-#include <mutex>
 #include <stdexcept>
-#include <thread>
 
 namespace phys
 {
@@ -50,154 +45,6 @@ namespace phys
             return sameVector(std::get<Box>(a.shape).halfExtents, std::get<Box>(b.shape).halfExtents);
         }
 
-        class ParallelFor
-        {
-        public:
-            using Task = void (*)(void *, std::size_t);
-
-            ~ParallelFor()
-            {
-                stop();
-            }
-
-            ParallelFor(const ParallelFor &) = delete;
-            ParallelFor &operator=(const ParallelFor &) = delete;
-
-            ParallelFor() = default;
-
-            void configure(std::size_t workerCount)
-            {
-                const std::size_t backgroundCount = workerCount - 1;
-                if (workers.size() == backgroundCount)
-                    return;
-
-                stop();
-                try
-                {
-                    workers.reserve(backgroundCount);
-                    for (std::size_t index = 0; index < backgroundCount; ++index)
-                        workers.emplace_back([this] { workerLoop(); });
-                }
-                catch (...)
-                {
-                    stop();
-                    throw;
-                }
-            }
-
-            template <typename Function>
-            void run(std::size_t workerCount, std::size_t itemCount, Function &function)
-            {
-                configure(workerCount);
-                if (workers.empty() || itemCount == 0)
-                {
-                    for (std::size_t index = 0; index < itemCount; ++index)
-                        function(index);
-                    return;
-                }
-
-                auto invoke = [](void *context, std::size_t index) {
-                    (*static_cast<Function *>(context))(index);
-                };
-                {
-                    std::lock_guard lock(mutex);
-                    task = invoke;
-                    taskContext = &function;
-                    taskCount = itemCount;
-                    nextIndex.store(0, std::memory_order_relaxed);
-                    unfinishedWorkers = workers.size();
-                    failure = nullptr;
-                    ++generation;
-                }
-                workAvailable.notify_all();
-                runChunks();
-
-                std::unique_lock lock(mutex);
-                workFinished.wait(lock, [&] { return unfinishedWorkers == 0; });
-                std::exception_ptr taskFailure = failure;
-                lock.unlock();
-                if (taskFailure)
-                    std::rethrow_exception(taskFailure);
-            }
-
-        private:
-            static constexpr std::size_t chunkSize = 64;
-
-            void runChunks()
-            {
-                try
-                {
-                    for (;;)
-                    {
-                        std::size_t begin = nextIndex.fetch_add(
-                            chunkSize, std::memory_order_relaxed);
-                        if (begin >= taskCount)
-                            return;
-                        std::size_t end = std::min(begin + chunkSize, taskCount);
-                        for (std::size_t index = begin; index < end; ++index)
-                            task(taskContext, index);
-                    }
-                }
-                catch (...)
-                {
-                    std::lock_guard lock(mutex);
-                    if (!failure)
-                        failure = std::current_exception();
-                    nextIndex.store(taskCount, std::memory_order_relaxed);
-                }
-            }
-
-            void workerLoop()
-            {
-                std::size_t observedGeneration = 0;
-                for (;;)
-                {
-                    std::unique_lock lock(mutex);
-                    workAvailable.wait(lock, [&] {
-                        return stopping || generation != observedGeneration;
-                    });
-                    if (stopping)
-                        return;
-                    observedGeneration = generation;
-                    lock.unlock();
-
-                    runChunks();
-
-                    lock.lock();
-                    if (--unfinishedWorkers == 0)
-                        workFinished.notify_one();
-                }
-            }
-
-            void stop()
-            {
-                {
-                    std::lock_guard lock(mutex);
-                    stopping = true;
-                }
-                workAvailable.notify_all();
-                for (std::thread &worker : workers)
-                    if (worker.joinable())
-                        worker.join();
-                workers.clear();
-                stopping = false;
-                generation = 0;
-            }
-
-            std::vector<std::thread> workers;
-            std::mutex mutex;
-            std::condition_variable workAvailable;
-            std::condition_variable workFinished;
-            std::atomic<std::size_t> nextIndex = 0;
-            Task task = nullptr;
-            void *taskContext = nullptr;
-            std::size_t taskCount = 0;
-            std::size_t unfinishedWorkers = 0;
-            std::size_t generation = 0;
-            std::exception_ptr failure;
-            bool stopping = false;
-        };
-
         struct NarrowPhaseResult
         {
             ContactManifold manifold{};
@@ -218,7 +65,7 @@ namespace phys
         std::vector<std::pair<DynamicAabbTree::ProxyId, DynamicAabbTree::ProxyId>> treeStack;
         detail::BroadPhaseWorkspace broadPhase;
         detail::SolverWorkspace solver;
-        ParallelFor narrowPhaseWorkers;
+        detail::ParallelFor workers;
     };
 
     PhysicsWorld::PhysicsWorld() = default;
@@ -236,6 +83,7 @@ namespace phys
           cachedContacts(other.cachedContacts),
           stats(other.stats),
           narrowPhaseWorkerCount(other.narrowPhaseWorkerCount),
+          solverWorkerCount(other.solverWorkerCount),
           sleepingEnabled(other.sleepingEnabled),
           sleepGravity(other.sleepGravity),
           sleepStates(other.sleepStates),
@@ -251,6 +99,7 @@ namespace phys
         gravity = other.gravity;
         broadPhaseAlgorithm = other.broadPhaseAlgorithm;
         narrowPhaseWorkerCount = other.narrowPhaseWorkerCount;
+        solverWorkerCount = other.solverWorkerCount;
         slots = other.slots;
         freeList = other.freeList;
         colliderSlots = other.colliderSlots;
@@ -283,8 +132,17 @@ namespace phys
         if (count == 0)
             throw std::invalid_argument("Narrowphase worker count must be positive");
         if (stepWorkspace)
-            stepWorkspace->narrowPhaseWorkers.configure(count);
+            stepWorkspace->workers.configure(std::max(count, solverWorkerCount));
         narrowPhaseWorkerCount = count;
+    }
+
+    void PhysicsWorld::setSolverWorkerCount(std::size_t count)
+    {
+        if (count == 0)
+            throw std::invalid_argument("Solver worker count must be positive");
+        if (stepWorkspace)
+            stepWorkspace->workers.configure(std::max(narrowPhaseWorkerCount, count));
+        solverWorkerCount = count;
     }
 
     RigidBodyHandle PhysicsWorld::addBody(const RigidBody &body)
@@ -856,7 +714,7 @@ namespace phys
             auto generateAtIndex = [&](std::size_t index) {
                 generateContact(index, results[index]);
             };
-            stepWorkspace.narrowPhaseWorkers.run(
+            stepWorkspace.workers.run(
                 narrowPhaseWorkerCount, candidatePairs.size(), generateAtIndex);
             for (const NarrowPhaseResult &result : results)
                 appendResult(result);
@@ -876,7 +734,9 @@ namespace phys
         }
 
         auto solverStart = Clock::now();
-        SequentialImpulseSolver::solve(currentContacts, *this, dt, stepWorkspace.solver);
+        SequentialImpulseSolver::solve(
+            currentContacts, *this, dt, stepWorkspace.solver,
+            stepWorkspace.workers, solverWorkerCount);
         stats.solverMs = elapsedMs(solverStart);
 
         // Pose-integration: advance each active body by its current velocities.

@@ -455,9 +455,11 @@ bool testParallelNarrowPhaseMatchesSerial()
 
     phys::PhysicsWorld parallel = serial;
     parallel.setNarrowPhaseWorkerCount(4);
+    parallel.setSolverWorkerCount(4);
     serial.step(0.0f);
     parallel.step(0.0f);
     if (parallel.getNarrowPhaseWorkerCount() != 4
+        || parallel.getSolverWorkerCount() != 4
         || parallel.contacts().size() != serial.contacts().size()) {
         std::cerr << "parallel narrowphase contact count differs\n";
         return false;
@@ -474,6 +476,8 @@ bool testParallelNarrowPhaseMatchesSerial()
     moved.step(0.0f);
     if (copied.getNarrowPhaseWorkerCount() != 4
         || moved.getNarrowPhaseWorkerCount() != 4
+        || copied.getSolverWorkerCount() != 4
+        || moved.getSolverWorkerCount() != 4
         || copied.contacts().size() != serial.contacts().size()
         || moved.contacts().size() != serial.contacts().size())
         return false;
@@ -481,6 +485,12 @@ bool testParallelNarrowPhaseMatchesSerial()
     moved.setNarrowPhaseWorkerCount(1);
     moved.step(0.0f);
     if (moved.getNarrowPhaseWorkerCount() != 1
+        || moved.getSolverWorkerCount() != 4
+        || moved.contacts().size() != serial.contacts().size())
+        return false;
+    moved.setSolverWorkerCount(1);
+    moved.step(0.0f);
+    if (moved.getSolverWorkerCount() != 1
         || moved.contacts().size() != serial.contacts().size())
         return false;
 
@@ -490,7 +500,14 @@ bool testParallelNarrowPhaseMatchesSerial()
         return false;
     }
     catch (const std::invalid_argument&) {}
-    return copied.getNarrowPhaseWorkerCount() == 4;
+    try {
+        copied.setSolverWorkerCount(0);
+        std::cerr << "zero solver workers were accepted\n";
+        return false;
+    }
+    catch (const std::invalid_argument&) {}
+    return copied.getNarrowPhaseWorkerCount() == 4
+        && copied.getSolverWorkerCount() == 4;
 }
 
 }

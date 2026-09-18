@@ -98,23 +98,140 @@ namespace phys
 		using detail::PreparedContactPoint;
 		using detail::PreparedManifold;
 
+		std::size_t prepareContactPoints(
+			PreparedManifold &prepared, float inverseDt)
+		{
+			constexpr float slop = 0.005f;
+			ContactManifold &manifold = *prepared.manifold;
+			RigidBody *bodyA = prepared.bodyA->body;
+			RigidBody *bodyB = prepared.bodyB->body;
+			std::size_t pointCount = 0;
+			for (uint32_t index = 0; index < manifold.pointCount; ++index)
+			{
+				ContactPoint &point = manifold.points[index];
+				PreparedContactPoint &preparedPoint = prepared.points[index];
+				preparedPoint.offsetA = bodyA->getRotation().rotate(point.localAnchorA);
+				preparedPoint.offsetB = bodyB->getRotation().rotate(point.localAnchorB);
+
+				Vec3 tangentReference = std::abs(manifold.normal.x) < 0.9f
+					? Vec3{1.0f, 0.0f, 0.0f}
+					: Vec3{0.0f, 1.0f, 0.0f};
+				preparedPoint.tangent1 = Math3d::cross(
+					manifold.normal, tangentReference);
+				float tangentLength = std::sqrt(dot(
+					preparedPoint.tangent1, preparedPoint.tangent1));
+				if (tangentLength <= 1e-6f)
+					continue;
+				preparedPoint.tangent1 = preparedPoint.tangent1 / tangentLength;
+				preparedPoint.tangent2 = Math3d::cross(
+					manifold.normal, preparedPoint.tangent1);
+
+				Vec3 velocityA = bodyA->getLinearVelocity()
+					+ Math3d::cross(bodyA->getAngularVelocity(), preparedPoint.offsetA);
+				Vec3 velocityB = bodyB->getLinearVelocity()
+					+ Math3d::cross(bodyB->getAngularVelocity(), preparedPoint.offsetB);
+				float incomingVelocityAlongNormal = dot(
+					velocityB - velocityA, manifold.normal);
+
+				Vec3 angularJacobianA = Math3d::cross(
+					preparedPoint.offsetA, manifold.normal);
+				Vec3 angularJacobianB = Math3d::cross(
+					preparedPoint.offsetB, manifold.normal);
+				preparedPoint.normalResponseA =
+					prepared.bodyA->inverseInertiaWorld * angularJacobianA;
+				preparedPoint.normalResponseB =
+					prepared.bodyB->inverseInertiaWorld * angularJacobianB;
+				float inverseMassSum =
+					prepared.bodyA->inverseMass + prepared.bodyB->inverseMass;
+				preparedPoint.inverseEffectiveMass = inverseMassSum
+					+ dot(angularJacobianA, preparedPoint.normalResponseA)
+					+ dot(angularJacobianB, preparedPoint.normalResponseB);
+
+				Vec3 tangentAngularJacobianA = Math3d::cross(
+					preparedPoint.offsetA, preparedPoint.tangent1);
+				Vec3 tangentAngularJacobianB = Math3d::cross(
+					preparedPoint.offsetB, preparedPoint.tangent1);
+				preparedPoint.tangentResponseA1 =
+					prepared.bodyA->inverseInertiaWorld * tangentAngularJacobianA;
+				preparedPoint.tangentResponseB1 =
+					prepared.bodyB->inverseInertiaWorld * tangentAngularJacobianB;
+				float tangentMass00 = inverseMassSum
+					+ dot(tangentAngularJacobianA, preparedPoint.tangentResponseA1)
+					+ dot(tangentAngularJacobianB, preparedPoint.tangentResponseB1);
+				preparedPoint.normalTangentResponse1 =
+					inverseMassSum * dot(manifold.normal, preparedPoint.tangent1)
+					+ dot(tangentAngularJacobianA, preparedPoint.normalResponseA)
+					+ dot(tangentAngularJacobianB, preparedPoint.normalResponseB);
+
+				tangentAngularJacobianA = Math3d::cross(
+					preparedPoint.offsetA, preparedPoint.tangent2);
+				tangentAngularJacobianB = Math3d::cross(
+					preparedPoint.offsetB, preparedPoint.tangent2);
+				preparedPoint.tangentResponseA2 =
+					prepared.bodyA->inverseInertiaWorld * tangentAngularJacobianA;
+				preparedPoint.tangentResponseB2 =
+					prepared.bodyB->inverseInertiaWorld * tangentAngularJacobianB;
+				float tangentMass11 = inverseMassSum
+					+ dot(tangentAngularJacobianA, preparedPoint.tangentResponseA2)
+					+ dot(tangentAngularJacobianB, preparedPoint.tangentResponseB2);
+				preparedPoint.normalTangentResponse2 =
+					inverseMassSum * dot(manifold.normal, preparedPoint.tangent2)
+					+ dot(tangentAngularJacobianA, preparedPoint.normalResponseA)
+					+ dot(tangentAngularJacobianB, preparedPoint.normalResponseB);
+				float tangentMass01 =
+					dot(tangentAngularJacobianA, preparedPoint.tangentResponseA1)
+					+ dot(tangentAngularJacobianB, preparedPoint.tangentResponseB1);
+				float tangentDeterminant =
+					tangentMass00 * tangentMass11 - tangentMass01 * tangentMass01;
+				if (tangentDeterminant > 0.0f)
+				{
+					float inverseTangentDeterminant = 1.0f / tangentDeterminant;
+					preparedPoint.inverseTangentMass00 =
+						tangentMass11 * inverseTangentDeterminant;
+					preparedPoint.inverseTangentMass01 =
+						-tangentMass01 * inverseTangentDeterminant;
+					preparedPoint.inverseTangentMass11 =
+						tangentMass00 * inverseTangentDeterminant;
+				}
+				else
+				{
+					preparedPoint.inverseTangentMass00 = 0.0f;
+					preparedPoint.inverseTangentMass01 = 0.0f;
+					preparedPoint.inverseTangentMass11 = 0.0f;
+				}
+				if (preparedPoint.inverseEffectiveMass <= 0.0f)
+					continue;
+				++pointCount;
+
+				preparedPoint.bias = std::max(
+					point.penetration - slop, 0.0f) * (0.2f * inverseDt);
+				preparedPoint.restitutionVelocity =
+					incomingVelocityAlongNormal < -1.0f
+						? manifold.restitution * incomingVelocityAlongNormal
+						: 0.0f;
+			}
+			return pointCount;
+		}
+
 	}
 
 	void SequentialImpulseSolver::solve(std::vector<ContactManifold> &contacts,
 										PhysicsWorld &world, float dt)
 	{
 		detail::SolverWorkspace workspace;
-		solve(contacts, world, dt, workspace);
+		detail::ParallelFor workers;
+		solve(contacts, world, dt, workspace, workers, world.solverWorkerCount);
 	}
 
 	void SequentialImpulseSolver::solve(std::vector<ContactManifold> &contacts,
 										PhysicsWorld &world, float dt,
-										detail::SolverWorkspace &workspace)
+										detail::SolverWorkspace &workspace,
+										detail::ParallelFor &workers,
+										std::size_t workerCount)
 	{
 		SolverStats &stats = world.stats.solverDetails;
 		stats = {};
 		auto prepareStart = Clock::now();
-		constexpr float slop = 0.005f; // how much overlap we can tolerate before solver triggers
 		constexpr int iterations = 8;
 		const float inverseDt = 1.0f / std::max(dt, 1e-6f);
 		std::size_t preparedPointCount = 0;
@@ -192,6 +309,9 @@ namespace phys
 			body->angularVelocity += angularResponse;
 		};
 
+		constexpr std::size_t minimumParallelContacts = 4096;
+		const bool deferPreparation = workerCount > 1
+			&& contacts.size() >= minimumParallelContacts;
 		for (ContactManifold &manifold : contacts)
 		{
 			RigidBody *bodyA = world.getBody(manifold.bodyA);
@@ -209,102 +329,117 @@ namespace phys
 			prepared.manifold = &manifold;
 			prepared.bodyA = prepareBody(bodyA, manifold.bodyA.index);
 			prepared.bodyB = prepareBody(bodyB, manifold.bodyB.index);
-
-			for (uint32_t index = 0; index < manifold.pointCount; ++index)
-			{
-				ContactPoint &point = manifold.points[index];
-				PreparedContactPoint &preparedPoint = prepared.points[index];
-				preparedPoint.offsetA = bodyA->getRotation().rotate(point.localAnchorA);
-				preparedPoint.offsetB = bodyB->getRotation().rotate(point.localAnchorB);
-
-				// Prepare tangents for friction as well
-				Vec3 tangentReference = std::abs(manifold.normal.x) < 0.9f
-											? Vec3{1.0f, 0.0f, 0.0f}
-											: Vec3{0.0f, 1.0f, 0.0f};
-				// We need two tangent directions relative to the surface
-				preparedPoint.tangent1 = Math3d::cross(
-					manifold.normal, tangentReference);
-				float tangentLength = std::sqrt(dot(
-					preparedPoint.tangent1, preparedPoint.tangent1));
-				if (tangentLength <= 1e-6f)
-					continue;
-				preparedPoint.tangent1 = preparedPoint.tangent1 / tangentLength;
-				preparedPoint.tangent2 = Math3d::cross(
-					manifold.normal, preparedPoint.tangent1);
-
-				// Initial incoming velocity
-				Vec3 velocityA = bodyA->getLinearVelocity() + Math3d::cross(bodyA->getAngularVelocity(), preparedPoint.offsetA);
-				Vec3 velocityB = bodyB->getLinearVelocity() + Math3d::cross(bodyB->getAngularVelocity(), preparedPoint.offsetB);
-				float incomingVelocityAlongNormal = dot(
-					velocityB - velocityA, manifold.normal);
-
-				Vec3 angularJacobianA = Math3d::cross(
-					preparedPoint.offsetA, manifold.normal);
-				Vec3 angularJacobianB = Math3d::cross(
-					preparedPoint.offsetB, manifold.normal);
-				preparedPoint.normalResponseA = prepared.bodyA->inverseInertiaWorld * angularJacobianA;
-				preparedPoint.normalResponseB = prepared.bodyB->inverseInertiaWorld * angularJacobianB;
-				float inverseMassSum = prepared.bodyA->inverseMass + prepared.bodyB->inverseMass;
-				preparedPoint.inverseEffectiveMass = inverseMassSum + dot(angularJacobianA, preparedPoint.normalResponseA) + dot(angularJacobianB, preparedPoint.normalResponseB);
-
-				// Tangent angular Jacobians: Rotation can make the contact point slide sideways even if the center of mass has zero sideways velocity.
-				Vec3 tangentAngularJacobianA = Math3d::cross(
-					preparedPoint.offsetA, preparedPoint.tangent1);
-				Vec3 tangentAngularJacobianB = Math3d::cross(
-					preparedPoint.offsetB, preparedPoint.tangent1);
-				preparedPoint.tangentResponseA1 = prepared.bodyA->inverseInertiaWorld * tangentAngularJacobianA;
-				preparedPoint.tangentResponseB1 = prepared.bodyB->inverseInertiaWorld * tangentAngularJacobianB;
-				float tangentMass00 = inverseMassSum + dot(tangentAngularJacobianA, preparedPoint.tangentResponseA1) + dot(tangentAngularJacobianB, preparedPoint.tangentResponseB1);
-				// Tangential contact-velocity change caused by a unit normal impulse.
-				preparedPoint.normalTangentResponse1 =
-					inverseMassSum * dot(manifold.normal, preparedPoint.tangent1)
-					+ dot(tangentAngularJacobianA, preparedPoint.normalResponseA)
-					+ dot(tangentAngularJacobianB, preparedPoint.normalResponseB);
-
-				tangentAngularJacobianA = Math3d::cross(
-					preparedPoint.offsetA, preparedPoint.tangent2);
-				tangentAngularJacobianB = Math3d::cross(
-					preparedPoint.offsetB, preparedPoint.tangent2);
-				preparedPoint.tangentResponseA2 = prepared.bodyA->inverseInertiaWorld * tangentAngularJacobianA;
-				preparedPoint.tangentResponseB2 = prepared.bodyB->inverseInertiaWorld * tangentAngularJacobianB;
-				float tangentMass11 = inverseMassSum + dot(tangentAngularJacobianA, preparedPoint.tangentResponseA2) + dot(tangentAngularJacobianB, preparedPoint.tangentResponseB2);
-				preparedPoint.normalTangentResponse2 =
-					inverseMassSum * dot(manifold.normal, preparedPoint.tangent2)
-					+ dot(tangentAngularJacobianA, preparedPoint.normalResponseA)
-					+ dot(tangentAngularJacobianB, preparedPoint.normalResponseB);
-				float tangentMass01 =
-					dot(tangentAngularJacobianA, preparedPoint.tangentResponseA1)
-					+ dot(tangentAngularJacobianB, preparedPoint.tangentResponseB1);
-				float tangentDeterminant =
-					tangentMass00 * tangentMass11 - tangentMass01 * tangentMass01;
-				if (tangentDeterminant > 0.0f)
-				{
-					float inverseTangentDeterminant = 1.0f / tangentDeterminant;
-					preparedPoint.inverseTangentMass00 = tangentMass11 * inverseTangentDeterminant;
-					preparedPoint.inverseTangentMass01 = -tangentMass01 * inverseTangentDeterminant;
-					preparedPoint.inverseTangentMass11 = tangentMass00 * inverseTangentDeterminant;
-				}
-				else
-				{
-					preparedPoint.inverseTangentMass00 = 0.0f;
-					preparedPoint.inverseTangentMass01 = 0.0f;
-					preparedPoint.inverseTangentMass11 = 0.0f;
-				}
-				if (preparedPoint.inverseEffectiveMass <= 0.0f)
-					continue;
-				++preparedPointCount;
-
-				preparedPoint.bias = std::max(point.penetration - slop, 0.0f) * (0.2f * inverseDt);
-				preparedPoint.restitutionVelocity =
-					incomingVelocityAlongNormal < -1.0f
-						? manifold.restitution * incomingVelocityAlongNormal
-						: 0.0f;
-			}
-
+			if (!deferPreparation)
+				preparedPointCount += prepareContactPoints(prepared, inverseDt);
 			preparedContacts.push_back(prepared);
+		}
+
+		if (deferPreparation)
+		{
+			auto &preparedPointCounts = workspace.preparedPointCounts;
+			preparedPointCounts.resize(preparedContacts.size());
+			auto preparePoints = [&](std::size_t index) {
+				preparedPointCounts[index] =
+					prepareContactPoints(preparedContacts[index], inverseDt);
+			};
+			if (preparedContacts.size() >= minimumParallelContacts)
+				workers.run(
+					workerCount, preparedContacts.size(), preparePoints);
+			else
+				for (std::size_t index = 0; index < preparedContacts.size(); ++index)
+					preparePoints(index);
+			preparedPointCount = std::accumulate(
+				preparedPointCounts.begin(), preparedPointCounts.end(), std::size_t{0});
 		}
 		world.stats.solvedContactCount = preparedContacts.size();
 		stats.preparedPoints = preparedPointCount;
+
+		auto &islandParents = workspace.islandParents;
+		auto &islandLookup = workspace.islandLookup;
+		auto &contactIslands = workspace.contactIslands;
+		auto &islandContactCounts = workspace.islandContactCounts;
+		auto &islandPointCounts = workspace.islandPointCounts;
+		auto &islandOffsets = workspace.islandOffsets;
+		auto &islandWriteOffsets = workspace.islandWriteOffsets;
+		auto &islandContactIndices = workspace.islandContactIndices;
+		auto &islandOrder = workspace.islandOrder;
+		bool parallelIslands = workerCount > 1
+			&& preparedContacts.size() >= minimumParallelContacts;
+		if (parallelIslands)
+		{
+			islandParents.resize(world.slots.size());
+			std::iota(islandParents.begin(), islandParents.end(), 0);
+			auto islandRoot = [&](std::size_t index) {
+				while (islandParents[index] != index)
+				{
+					islandParents[index] = islandParents[islandParents[index]];
+					index = islandParents[index];
+				}
+				return index;
+			};
+			for (const PreparedManifold &prepared : preparedContacts)
+			{
+				if (prepared.bodyA->body->isStatic || prepared.bodyB->body->isStatic)
+					continue;
+				std::size_t rootA = islandRoot(prepared.manifold->bodyA.index);
+				std::size_t rootB = islandRoot(prepared.manifold->bodyB.index);
+				if (rootA != rootB)
+					islandParents[std::max(rootA, rootB)] = std::min(rootA, rootB);
+			}
+
+			const std::size_t invalidIsland = preparedContacts.size();
+			islandLookup.assign(world.slots.size(), invalidIsland);
+			contactIslands.resize(preparedContacts.size());
+			islandContactCounts.clear();
+			islandPointCounts.clear();
+			for (std::size_t index = 0; index < preparedContacts.size(); ++index)
+			{
+				const PreparedManifold &prepared = preparedContacts[index];
+				std::size_t dynamicBody = prepared.bodyA->body->isStatic
+					? prepared.manifold->bodyB.index
+					: prepared.manifold->bodyA.index;
+				std::size_t root = islandRoot(dynamicBody);
+				std::size_t &island = islandLookup[root];
+				if (island == invalidIsland)
+				{
+					island = islandContactCounts.size();
+					islandContactCounts.push_back(0);
+					islandPointCounts.push_back(0);
+				}
+				contactIslands[index] = island;
+				++islandContactCounts[island];
+				islandPointCounts[island] += prepared.manifold->pointCount;
+			}
+
+			islandOffsets.resize(islandContactCounts.size() + 1);
+			islandOffsets[0] = 0;
+			std::partial_sum(
+				islandContactCounts.begin(), islandContactCounts.end(),
+				islandOffsets.begin() + 1);
+			islandWriteOffsets.assign(islandOffsets.begin(), islandOffsets.end() - 1);
+			islandContactIndices.resize(preparedContacts.size());
+			for (std::size_t index = 0; index < preparedContacts.size(); ++index)
+			{
+				std::size_t island = contactIslands[index];
+				islandContactIndices[islandWriteOffsets[island]++] = index;
+			}
+
+			stats.islandCount = islandContactCounts.size();
+			for (std::size_t count : islandContactCounts)
+				stats.largestIslandContacts = std::max(stats.largestIslandContacts, count);
+			for (std::size_t count : islandPointCounts)
+				stats.largestIslandPoints = std::max(stats.largestIslandPoints, count);
+			parallelIslands = islandContactCounts.size() > 1;
+			islandOrder.resize(islandContactCounts.size());
+			std::iota(islandOrder.begin(), islandOrder.end(), 0);
+			auto largestIsland = std::max_element(
+				islandPointCounts.begin(), islandPointCounts.end());
+			if (largestIsland != islandPointCounts.end())
+				std::swap(
+					islandOrder.front(),
+					islandOrder[static_cast<std::size_t>(
+						largestIsland - islandPointCounts.begin())]);
+		}
 		stats.prepareMs = elapsedMs(prepareStart);
 
 		// Restore impulses from the previous step before the iterative solve.
@@ -315,9 +450,9 @@ namespace phys
 				< std::tie(right.bodyA.index, right.bodyA.generation, right.bodyB.index, right.bodyB.generation);
 		};
 		constexpr float cacheMatchDistanceSquared = 0.05f * 0.05f;
-		auto warmStart = Clock::now();
-		for (PreparedManifold &prepared : preparedContacts)
-		{
+		auto warmStartPrepared = [&](PreparedManifold &prepared,
+									 std::size_t &comparisons,
+									 std::size_t &matches) {
 			ContactManifold &manifold = *prepared.manifold;
 			const auto cachedRange = std::equal_range(
 				world.cachedContacts.begin(), world.cachedContacts.end(), manifold, cachePairLess);
@@ -330,7 +465,7 @@ namespace phys
 
 				for (auto cachedPoint = cachedRange.first; cachedPoint != cachedRange.second; ++cachedPoint)
 				{
-					++warmStartComparisons;
+					++comparisons;
 					const PhysicsWorld::CachedContact &cached = *cachedPoint;
 					if (distanceSquared(cached.localAnchorA, point.localAnchorA) > cacheMatchDistanceSquared || distanceSquared(cached.localAnchorB, point.localAnchorB) > cacheMatchDistanceSquared)
 						continue;
@@ -348,27 +483,48 @@ namespace phys
 					Vec3 warmImpulse = manifold.normal * point.normalImpulse + preparedPoint.tangent1 * point.tangentImpulse1 + preparedPoint.tangent2 * point.tangentImpulse2;
 					applyCachedImpulse(*prepared.bodyA, -warmImpulse, preparedPoint.offsetA);
 					applyCachedImpulse(*prepared.bodyB, warmImpulse, preparedPoint.offsetB);
-					++warmStartMatches;
+					++matches;
 					break;
 				}
 			}
+		};
+		auto warmStart = Clock::now();
+		if (parallelIslands)
+		{
+			auto &islandComparisons = workspace.islandWarmStartComparisons;
+			auto &islandMatches = workspace.islandWarmStartMatches;
+			islandComparisons.assign(islandContactCounts.size(), 0);
+			islandMatches.assign(islandContactCounts.size(), 0);
+			auto warmStartIsland = [&](std::size_t job) {
+				std::size_t island = islandOrder[job];
+				for (std::size_t offset = islandOffsets[island];
+					 offset < islandOffsets[island + 1]; ++offset)
+					warmStartPrepared(
+						preparedContacts[islandContactIndices[offset]],
+						islandComparisons[island], islandMatches[island]);
+			};
+			workers.run(
+				workerCount, islandContactCounts.size(), warmStartIsland, 1);
+			warmStartComparisons = std::accumulate(
+				islandComparisons.begin(), islandComparisons.end(), std::size_t{0});
+			warmStartMatches = std::accumulate(
+				islandMatches.begin(), islandMatches.end(), std::size_t{0});
 		}
+		else
+			for (PreparedManifold &prepared : preparedContacts)
+				warmStartPrepared(prepared, warmStartComparisons, warmStartMatches);
 		stats.warmStartComparisons = warmStartComparisons;
 		stats.warmStartMatches = warmStartMatches;
 		stats.warmStartMs = elapsedMs(warmStart);
 
-		auto velocityIterationsStart = Clock::now();
-		for (int iteration = 0; iteration < iterations; ++iteration)
-		{
-			for (PreparedManifold &prepared : preparedContacts)
-			{
-				ContactManifold &manifold = *prepared.manifold;
-				RigidBody *bodyA = prepared.bodyA->body;
-				RigidBody *bodyB = prepared.bodyB->body;
+		auto solvePrepared = [&](PreparedManifold &prepared) {
+			ContactManifold &manifold = *prepared.manifold;
+			RigidBody *bodyA = prepared.bodyA->body;
+			RigidBody *bodyB = prepared.bodyB->body;
 
-				// Loop through each contact point
-				for (uint32_t index = 0; index < manifold.pointCount; ++index)
-				{
+			// Loop through each contact point
+			for (uint32_t index = 0; index < manifold.pointCount; ++index)
+			{
 
 					ContactPoint &point = manifold.points[index];
 					PreparedContactPoint &preparedPoint = prepared.points[index];
@@ -443,9 +599,24 @@ namespace phys
 						+ preparedPoint.tangentResponseB2 * appliedTangentImpulse2;
 					applyTangentImpulse(*prepared.bodyA, -tangentImpulse, -angularResponseA);
 					applyTangentImpulse(*prepared.bodyB, tangentImpulse, angularResponseB);
-				}
 			}
+		};
+		auto velocityIterationsStart = Clock::now();
+		if (parallelIslands)
+		{
+			auto solveIsland = [&](std::size_t job) {
+				std::size_t island = islandOrder[job];
+				for (int iteration = 0; iteration < iterations; ++iteration)
+					for (std::size_t offset = islandOffsets[island];
+						 offset < islandOffsets[island + 1]; ++offset)
+						solvePrepared(preparedContacts[islandContactIndices[offset]]);
+			};
+			workers.run(workerCount, islandContactCounts.size(), solveIsland, 1);
 		}
+		else
+			for (int iteration = 0; iteration < iterations; ++iteration)
+				for (PreparedManifold &prepared : preparedContacts)
+					solvePrepared(prepared);
 		stats.velocityPointVisits = preparedPointCount * iterations;
 		stats.velocityIterationsMs = elapsedMs(velocityIterationsStart);
 

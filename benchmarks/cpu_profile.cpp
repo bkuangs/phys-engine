@@ -85,6 +85,11 @@ struct Totals
     std::size_t solverWarmStartComparisons = 0;
     std::size_t solverWarmStartMatches = 0;
     std::size_t solverVelocityPointVisits = 0;
+    std::size_t solverIslands = 0;
+    std::size_t solverLargestIslandContacts = 0;
+    std::size_t solverLargestIslandContactsTotal = 0;
+    std::size_t solverLargestIslandPoints = 0;
+    std::size_t solverLargestIslandPointsTotal = 0;
 
     void record(const phys::StepStats& stats)
     {
@@ -113,6 +118,13 @@ struct Totals
         solverWarmStartComparisons += stats.solverDetails.warmStartComparisons;
         solverWarmStartMatches += stats.solverDetails.warmStartMatches;
         solverVelocityPointVisits += stats.solverDetails.velocityPointVisits;
+        solverIslands += stats.solverDetails.islandCount;
+        solverLargestIslandContactsTotal += stats.solverDetails.largestIslandContacts;
+        solverLargestIslandContacts = std::max(
+            solverLargestIslandContacts, stats.solverDetails.largestIslandContacts);
+        solverLargestIslandPointsTotal += stats.solverDetails.largestIslandPoints;
+        solverLargestIslandPoints = std::max(
+            solverLargestIslandPoints, stats.solverDetails.largestIslandPoints);
         integrateVelocity += stats.integrateVelocityMs;
         integratePose += stats.integratePoseMs;
     }
@@ -122,8 +134,8 @@ struct Totals
 
 int main(int argc, char** argv)
 {
-    if (argc < 2 || argc > 6) {
-        std::cerr << "Usage: phys_cpu_profile <spheres|boxes|mixed5k|mixed10k> [seconds=20] [--wait] [--sleep] [--workers=N]\n";
+    if (argc < 2 || argc > 7) {
+        std::cerr << "Usage: phys_cpu_profile <spheres|boxes|mixed5k|mixed10k> [seconds=20] [--wait] [--sleep] [--workers=N] [--solver-workers=N]\n";
         return 1;
     }
     std::string_view scene = argv[1];
@@ -145,6 +157,8 @@ int main(int argc, char** argv)
     bool sleeping = false;
     std::size_t narrowPhaseWorkers = 1;
     bool workersSet = false;
+    std::size_t solverWorkers = 1;
+    bool solverWorkersSet = false;
     for (int index = 3; index < argc; ++index) {
         std::string_view option = argv[index];
         if (option == "--wait" && !wait)
@@ -161,6 +175,18 @@ int main(int argc, char** argv)
                 return 1;
             }
             workersSet = true;
+        }
+        else if (option.starts_with("--solver-workers=") && !solverWorkersSet) {
+            std::string_view count = option.substr(
+                std::string_view("--solver-workers=").size());
+            auto [end, error] = std::from_chars(
+                count.data(), count.data() + count.size(), solverWorkers);
+            if (error != std::errc{} || end != count.data() + count.size()
+                || solverWorkers == 0) {
+                std::cerr << "Solver workers must be a positive integer\n";
+                return 1;
+            }
+            solverWorkersSet = true;
         }
         else {
             std::cerr << "Unknown or duplicate profile option: " << option << '\n';
@@ -191,6 +217,7 @@ int main(int argc, char** argv)
         : phys::BroadPhaseAlgorithm::DynamicTree;
     world.setSleepingEnabled(sleeping);
     world.setNarrowPhaseWorkerCount(narrowPhaseWorkers);
+    world.setSolverWorkerCount(solverWorkers);
     int warmup = 0;
     float warmLinear = 0;
     float warmAngular = 0;
@@ -228,6 +255,7 @@ int main(int argc, char** argv)
               << " contacts=" << world.contacts().size() << " contact_points=" << warmPoints
               << " sleeping_enabled=" << sleeping
               << " narrowphase_workers=" << narrowPhaseWorkers
+              << " solver_workers=" << solverWorkers
               << " sleeping_bodies=" << world.lastStepStats().sleepingBodyCount << std::endl;
     if (wait) {
         std::string line;
@@ -275,6 +303,13 @@ int main(int argc, char** argv)
               << "\nmean_solver_warm_start_comparisons: " << totals.solverWarmStartComparisons / count
               << "\nmean_solver_warm_start_matches: " << totals.solverWarmStartMatches / count
               << "\nmean_solver_velocity_point_visits: " << totals.solverVelocityPointVisits / count
+              << "\nmean_solver_islands: " << totals.solverIslands / count
+              << "\nmean_largest_solver_island_contacts: "
+              << totals.solverLargestIslandContactsTotal / count
+              << "\nmax_solver_island_contacts: " << totals.solverLargestIslandContacts
+              << "\nmean_largest_solver_island_points: "
+              << totals.solverLargestIslandPointsTotal / count
+              << "\nmax_solver_island_points: " << totals.solverLargestIslandPoints
               << "\nmean_integrate_velocity_ms: " << totals.integrateVelocity / count
               << "\nmean_integrate_pose_ms: " << totals.integratePose / count
               << "\nmean_contacts: " << totals.contacts / count

@@ -1,0 +1,89 @@
+Deterministic Parallel Solver Islands - Release Comparison
+==========================================================
+
+Date:                       2026-09-17
+Hardware:                   Apple M2, macOS arm64
+Compiler/build:             Apple Clang, Release (-O3 -DNDEBUG), C++20
+Control revision:           2a81f30
+Current source:             experiment/parallel-solver-islands working tree
+Scaling command:            phys_collision_bench 1200 sap mixed 240 4 SOLVER_WORKERS
+Focused commands:           phys_cpu_profile mixed5k 3 --workers=4 --solver-workers=N
+                            phys_cpu_profile mixed10k 3 --workers=4 --solver-workers=N
+Scene:                      Seeded mixed floor, sleeping disabled
+Statistic:                  Median of three per-run means
+
+Implementation
+--------------
+
+The solver groups contacts by connected dynamic-body island. Static bodies do
+not join islands because solver impulses never modify them. Independent islands
+can therefore prepare contacts, warm start, and run all eight velocity
+iterations concurrently without changing the operation order seen by any
+dynamic body.
+
+Each island retains its original contact order. The largest point-weighted
+island starts first, while the existing world-owned worker pool dynamically
+claims smaller islands. Contact-cache updates remain serial and preserve their
+existing order. Parallel solving begins at 4,096 prepared manifolds; one solver
+worker remains the default.
+
+Focused sustained results
+-------------------------
+
+bodies,solver_workers,step_ms,solver_ms,prepare_ms,warm_start_ms,velocity_iterations_ms
+5000,1,5.7650,3.4719,0.7056,0.4959,2.1564
+5000,2,5.0876,2.7888,0.7053,0.4057,1.5662
+5000,4,4.7940,2.4546,0.6227,0.3626,1.3579
+10000,1,12.4443,7.1502,1.5257,0.9779,4.4161
+10000,2,10.3510,5.0801,1.5847,0.7125,2.5611
+10000,4,9.0555,3.7788,1.4192,0.4746,1.6595
+
+Four solver workers reduced full-step time by 16.8% at 5,000 bodies and 27.2%
+at 10,000. Solver time fell by 29.3% and 47.2%; velocity iterations fell by
+37.0% and 62.4%.
+
+Fixed-step results
+------------------
+
+One serial and one four-worker run used 240 warmup and 1,200 measured steps:
+
+bodies,serial_step_ms,parallel_step_ms,step_change,serial_solver_ms,parallel_solver_ms,solver_change
+100,0.10,0.09,-,0.06,0.05,-
+500,0.55,0.53,-,0.32,0.31,-
+1000,1.17,1.17,0.0%,0.64,0.64,0.0%
+2500,2.70,2.61,-3.3%,1.69,1.59,-5.9%
+5000,5.81,5.11,-12.0%,3.47,2.78,-19.9%
+10000,12.74,11.20,-12.1%,7.29,5.78,-20.7%
+
+Scenes below the 4,096-manifold threshold stayed serial. At 5,000 bodies, p95
+improved from 6.52 to 5.76 ms and p99 from 10.72 to 10.40 ms. At 10,000, p95
+improved from 14.96 to 13.32 ms and p99 from 23.15 to 22.13 ms.
+
+Island distribution
+-------------------
+
+The fixed workload contains many islands but develops one dominant cluster:
+
+bodies,mean_islands,largest_island_contacts_mean,largest_island_contacts_max
+5000,860.52,5606.97,7607
+10000,1614.02,11110.00,15527
+
+Starting the largest island first lets the other workers consume smaller
+islands while it runs. The dominant island limits long-run scaling, which is why
+fixed-step gains are smaller than the focused profile gains.
+
+Behavior
+--------
+
+One, two, and four solver workers produced exact fixed-step candidate,
+manifold, and contact-point counts and exact final penetration and velocity
+metrics at every tested size. A direct regression also compares every body
+velocity and accumulated contact impulse across two independent 2,080-contact
+islands, including a second warm-started solve.
+
+Decision
+--------
+
+Retain as an opt-in feature. Four workers exceed the gates of 15% lower solver
+time and 7% lower full-step time at both target sizes. Small scenes remain
+serial, fixed-step output is exact, and long-run p95/p99 do not regress.

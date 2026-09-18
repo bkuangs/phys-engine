@@ -24,6 +24,9 @@ struct SolverStats
     std::size_t warmStartComparisons = 0;
     std::size_t warmStartMatches = 0;
     std::size_t velocityPointVisits = 0;
+    std::size_t islandCount = 0;
+    std::size_t largestIslandContacts = 0;
+    std::size_t largestIslandPoints = 0;
 };
 
 // Per-stage timings/counts for the most recent PhysicsWorld::step() call.

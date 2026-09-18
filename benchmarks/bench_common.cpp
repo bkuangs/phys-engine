@@ -92,6 +92,7 @@ namespace phys::bench
         world.broadPhaseAlgorithm = options.algorithm;
         world.setSleepingEnabled(options.sleepingEnabled);
         world.setNarrowPhaseWorkerCount(options.narrowPhaseWorkers);
+        world.setSolverWorkerCount(options.solverWorkers);
         double deadlineMs = 1000.0 / simulationHz;
         double warmupTotalMs = 0;
         double coldFirstStepMs = 0;
@@ -118,6 +119,8 @@ namespace phys::bench
         BroadPhaseStats broadPhaseTotals{};
         NarrowPhaseStats narrowPhaseTotals{};
         SolverStats solverTotals{};
+        std::size_t solverMaxIslandContacts = 0;
+        std::size_t solverMaxIslandPoints = 0;
         double firstStepMs = 0.0;
         std::size_t deadlineMisses = 0;
         std::size_t totalAllocations = 0;
@@ -183,6 +186,13 @@ namespace phys::bench
             solverTotals.warmStartComparisons += stats.solverDetails.warmStartComparisons;
             solverTotals.warmStartMatches += stats.solverDetails.warmStartMatches;
             solverTotals.velocityPointVisits += stats.solverDetails.velocityPointVisits;
+            solverTotals.islandCount += stats.solverDetails.islandCount;
+            solverTotals.largestIslandContacts += stats.solverDetails.largestIslandContacts;
+            solverTotals.largestIslandPoints += stats.solverDetails.largestIslandPoints;
+            solverMaxIslandContacts = std::max(
+                solverMaxIslandContacts, stats.solverDetails.largestIslandContacts);
+            solverMaxIslandPoints = std::max(
+                solverMaxIslandPoints, stats.solverDetails.largestIslandPoints);
             if (stats.totalMs > deadlineMs)
                 ++deadlineMisses;
             totalContacts += stats.contactCount;
@@ -230,6 +240,7 @@ namespace phys::bench
         report.floorSize = scene.floorSize;
         report.sleepingEnabled = world.isSleepingEnabled();
         report.narrowPhaseWorkers = world.getNarrowPhaseWorkerCount();
+        report.solverWorkers = world.getSolverWorkerCount();
         report.stepTime = stepStats.summarize();
         report.integrateVelocityTime = integrateVelocityStats.summarize();
         report.broadPhaseTime = broadPhaseStats.summarize();
@@ -275,6 +286,13 @@ namespace phys::bench
             report.solverWarmStartComparisonsPerStep = solverTotals.warmStartComparisons / samples;
             report.solverWarmStartMatchesPerStep = solverTotals.warmStartMatches / samples;
             report.solverVelocityPointVisitsPerStep = solverTotals.velocityPointVisits / samples;
+            report.solverIslandsPerStep = solverTotals.islandCount / samples;
+            report.solverLargestIslandContactsPerStep =
+                solverTotals.largestIslandContacts / samples;
+            report.solverLargestIslandPointsPerStep =
+                solverTotals.largestIslandPoints / samples;
+            report.solverMaxIslandContacts = solverMaxIslandContacts;
+            report.solverMaxIslandPoints = solverMaxIslandPoints;
         }
         report.narrowPhaseMeanMs = narrowPhaseStats.summarize().mean;
         report.solverMeanMs = solverStats.summarize().mean;
@@ -299,9 +317,9 @@ namespace phys::bench
             options.sleepingEnabled = true;
             --argc;
         }
-        if (argc > 6)
+        if (argc > 7)
         {
-            std::cerr << "Usage: benchmark [measured_steps=1200] [sap|grid|tree] [mixed|spheres] [warmup_steps=240] [narrowphase_workers=1] [--sleep]\n";
+            std::cerr << "Usage: benchmark [measured_steps=1200] [sap|grid|tree] [mixed|spheres] [warmup_steps=240] [narrowphase_workers=1] [solver_workers=1] [--sleep]\n";
             return false;
         }
         if (argc > 1 && !parseSteps(argv[1], "Measured steps", false, options.measuredSteps))
@@ -321,15 +339,18 @@ namespace phys::bench
         }
         if (argc > 4 && !parseSteps(argv[4], "Warmup steps", true, options.warmupSteps))
             return false;
-        return argc < 6
-            || parseSteps(argv[5], "Narrowphase workers", false, options.narrowPhaseWorkers);
+        if (argc > 5
+            && !parseSteps(argv[5], "Narrowphase workers", false, options.narrowPhaseWorkers))
+            return false;
+        return argc < 7
+            || parseSteps(argv[6], "Solver workers", false, options.solverWorkers);
     }
 
     int runScalingBenchmark(int argc, char **argv)
     {
         if (argc == 2 && (std::string_view(argv[1]) == "--help" || std::string_view(argv[1]) == "-h"))
         {
-            std::cout << "Usage: benchmark [measured_steps=1200] [sap|grid|tree] [mixed|spheres] [warmup_steps=240] [narrowphase_workers=1] [--sleep]\n"
+            std::cout << "Usage: benchmark [measured_steps=1200] [sap|grid|tree] [mixed|spheres] [warmup_steps=240] [narrowphase_workers=1] [solver_workers=1] [--sleep]\n"
                          "Step counts are exact for every size; body counts exclude the static floor.\n"
                          "Sleeping is disabled unless the trailing --sleep flag is supplied.\n";
             return 0;
@@ -344,7 +365,8 @@ namespace phys::bench
                 std::cerr << "Benchmarking " << bodyCount << " dynamic bodies: "
                           << options.warmupSteps << " warmup + " << options.measuredSteps
                           << " measured steps; sleeping " << (options.sleepingEnabled ? "enabled" : "disabled")
-                          << "; narrowphase workers " << options.narrowPhaseWorkers << '\n';
+                          << "; narrowphase workers " << options.narrowPhaseWorkers
+                          << "; solver workers " << options.solverWorkers << '\n';
                 runBenchmark(bodyCount, 120.0, 42, options).print(std::cout);
                 std::cout.flush();
             }
@@ -387,6 +409,7 @@ namespace phys::bench
         out << "Scene:                      " << (scene == ScalingScene::MixedFloor ? "mixed-floor" : "sphere field") << "\n";
         out << "Sleeping:                   " << (sleepingEnabled ? "enabled" : "disabled") << "\n";
         out << "Narrowphase workers:        " << narrowPhaseWorkers << "\n";
+        out << "Solver workers:             " << solverWorkers << "\n";
         out << "Simulation frequency:       " << simulationHz << " Hz\n";
         out << "Broadphase algorithm:       "
             << (tree ? "dynamic AABB tree" : grid ? "uniform grid" : "sweep-and-prune") << "\n\n";
@@ -525,7 +548,16 @@ namespace phys::bench
         out << "    prepared points:         " << solverPreparedPointsPerStep << "\n";
         out << "    warm-start comparisons:  " << solverWarmStartComparisonsPerStep << "\n";
         out << "    warm-start matches:      " << solverWarmStartMatchesPerStep << "\n";
-        out << "    velocity point visits:   " << solverVelocityPointVisitsPerStep << "\n\n";
+        out << "    velocity point visits:   " << solverVelocityPointVisitsPerStep << "\n";
+        if (solverWorkers > 1)
+        {
+            out << "    parallel islands:        " << solverIslandsPerStep << "\n";
+            out << "    largest island contacts: " << solverLargestIslandContactsPerStep
+                << " mean, " << solverMaxIslandContacts << " max\n";
+            out << "    largest island points:   " << solverLargestIslandPointsPerStep
+                << " mean, " << solverMaxIslandPoints << " max\n";
+        }
+        out << "\n";
 
         out << "Engine heap allocations:\n";
         out << "    mean / step:             " << allocationsPerStep << "\n";

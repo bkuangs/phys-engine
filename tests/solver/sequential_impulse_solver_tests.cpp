@@ -552,6 +552,96 @@ namespace
         return true;
     }
 
+    bool testParallelIslandsMatchSerial()
+    {
+        constexpr std::size_t bodiesPerIsland = 65;
+        phys::PhysicsWorld serial;
+        std::vector<phys::RigidBodyHandle> handles;
+        handles.reserve(bodiesPerIsland * 2);
+        std::string error;
+        for (std::size_t index = 0; index < bodiesPerIsland * 2; ++index)
+        {
+            phys::RigidBody body;
+            if (!phys::RigidBody::createSphere(
+                    1.0f, {}, 1.0f, false, 0.0f, 0.6f, body, error))
+                return false;
+            body.setLinearVelocity({
+                static_cast<float>(index % 7) * 0.1f,
+                -1.0f - static_cast<float>(index % 5) * 0.05f,
+                static_cast<float>(index % 3) * -0.1f});
+            handles.push_back(serial.addBody(body));
+        }
+
+        std::vector<phys::ContactManifold> serialContacts;
+        for (std::size_t island = 0; island < 2; ++island)
+            for (std::size_t first = 0; first < bodiesPerIsland; ++first)
+                for (std::size_t second = first + 1;
+                     second < bodiesPerIsland; ++second)
+                {
+                    phys::ContactManifold contact{};
+                    contact.bodyA = handles[island * bodiesPerIsland + first];
+                    contact.bodyB = handles[island * bodiesPerIsland + second];
+                    contact.normal = {0.0f, 1.0f, 0.0f};
+                    contact.pointCount = 1;
+                    contact.points[0].localAnchorA = {0.1f, 0.0f, -0.2f};
+                    contact.points[0].localAnchorB = {-0.1f, 0.0f, 0.2f};
+                    contact.points[0].penetration = 0.01f;
+                    contact.friction = 0.6f;
+                    serialContacts.push_back(contact);
+                }
+
+        phys::PhysicsWorld parallel = serial;
+        std::vector<phys::ContactManifold> parallelContacts = serialContacts;
+        parallel.setSolverWorkerCount(4);
+        for (int pass = 0; pass < 2; ++pass)
+        {
+            phys::SequentialImpulseSolver::solve(
+                serialContacts, serial, 1.0f / 120.0f);
+            phys::SequentialImpulseSolver::solve(
+                parallelContacts, parallel, 1.0f / 120.0f);
+            for (phys::RigidBodyHandle handle : handles)
+            {
+                const phys::RigidBody *serialBody = serial.getBody(handle);
+                const phys::RigidBody *parallelBody = parallel.getBody(handle);
+                if (!serialBody || !parallelBody
+                    || serialBody->getLinearVelocity().x != parallelBody->getLinearVelocity().x
+                    || serialBody->getLinearVelocity().y != parallelBody->getLinearVelocity().y
+                    || serialBody->getLinearVelocity().z != parallelBody->getLinearVelocity().z
+                    || serialBody->getAngularVelocity().x != parallelBody->getAngularVelocity().x
+                    || serialBody->getAngularVelocity().y != parallelBody->getAngularVelocity().y
+                    || serialBody->getAngularVelocity().z != parallelBody->getAngularVelocity().z)
+                {
+                    std::cerr << "parallel island solve changed body velocity\n";
+                    return false;
+                }
+            }
+            for (std::size_t index = 0; index < serialContacts.size(); ++index)
+            {
+                const auto &serialPoint = serialContacts[index].points[0];
+                const auto &parallelPoint = parallelContacts[index].points[0];
+                if (serialPoint.normalImpulse != parallelPoint.normalImpulse
+                    || serialPoint.tangentImpulse1 != parallelPoint.tangentImpulse1
+                    || serialPoint.tangentImpulse2 != parallelPoint.tangentImpulse2)
+                {
+                    std::cerr << "parallel island solve changed contact impulse\n";
+                    return false;
+                }
+            }
+        }
+        if (parallel.lastStepStats().solverDetails.islandCount != 2
+            || parallel.lastStepStats().solverDetails.largestIslandContacts
+                != bodiesPerIsland * (bodiesPerIsland - 1) / 2)
+            return false;
+        try
+        {
+            parallel.setSolverWorkerCount(0);
+            std::cerr << "zero solver workers were accepted\n";
+            return false;
+        }
+        catch (const std::invalid_argument &) {}
+        return parallel.getSolverWorkerCount() == 4;
+    }
+
 }
 
 int main()
@@ -563,6 +653,7 @@ int main()
         && testBoxLandsOnStaticFloor()
         && testWarmStartPairIdentityAndStableMatching()
         && testPreparedBodyDataRefreshedBetweenSolves()
+        && testParallelIslandsMatchSerial()
         && testTiltedBoxSettlesFlat(1.0f / 60.0f, 0.3f, {0.0f, 0.0f, 1.0f})
         && testTiltedBoxSettlesFlat(1.0f / 120.0f, -0.6f, {1.0f, 0.0f, 0.0f})
         && testTiltedBoxSettlesFlat(1.0f / 60.0f, 0.5f,
