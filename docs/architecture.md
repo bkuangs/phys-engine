@@ -95,7 +95,7 @@ Factoring scalar impulse magnitudes out of the angular math changes floating-poi
 rounding, so long trajectories are not promised to remain bit-for-bit identical.
 The tradeoff is additional temporary prepared-state storage in exchange for less
 arithmetic in the repeated solve loop; see
-[measurements](performance.md#caching-solver-invariants).
+[measurements](performance_optimizations.md#6-cached-solver-calculations).
 
 ## Hot Path
 

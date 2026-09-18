@@ -3,8 +3,8 @@
 This is the short version of the optimizations retained on `main`. Measurements
 come from controlled Release comparisons at the time each change was made.
 Different rows use different workloads and baselines, so their gains should not
-be added together. See the [performance history](performance.md) for protocols,
-raw results, and rejected experiments.
+be added together. See the [current performance snapshot](performance.md) and
+linked result files for protocols and raw measurements.
 
 ## 1. Sweep-and-prune broadphase
 
