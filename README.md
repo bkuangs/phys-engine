@@ -57,9 +57,10 @@ Constraint solver -> corrected velocities
 Integrate positions / orientations
 ```
 
-See [architecture](docs/architecture.md) and
-[collision pipeline](docs/collision_pipeline.md) for intended boundaries and
-open decisions.
+See [architecture](docs/architecture.md),
+[collision pipeline](docs/collision_pipeline.md), and the concise
+[performance optimization history](docs/performance_optimizations.md) for
+intended boundaries, open decisions, and retained performance work.
 
 ## Roadmap
 
