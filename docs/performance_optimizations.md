@@ -133,3 +133,16 @@ be added together. Detailed protocols and measurements remain in
 - **Caveat:** Parallel narrowphase is opt-in; one worker remains the default,
   and small candidate sets stay serial.
 - **Behavior:** Contact order and fixed-step simulation output remain exact.
+
+## 14. Deterministic parallel solver islands
+
+- **Problem:** The solver remained more than half of the frame after
+  narrowphase became parallel.
+- **Solution:** Prepare and solve independent contact islands concurrently,
+  preserving contact order within each island and starting the largest first.
+- **Gain:** Four workers reduced focused solver time by 29-47% and full-step
+  time by 17-27%. The longer fixed-step benchmark improved by about 12%.
+- **Caveat:** Solver parallelism is opt-in, and one dominant island limits
+  scaling in heavily connected scenes.
+- **Behavior:** Body velocities, contact impulses, and fixed-step output remain
+  exact.
