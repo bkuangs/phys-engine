@@ -22,6 +22,7 @@ struct ScalingOptions
     bool sleepingEnabled = false;
     std::size_t narrowPhaseWorkers = 1;
     std::size_t solverWorkers = 1;
+    std::size_t broadPhaseWorkers = 1;
 };
 
 struct BenchmarkObject
@@ -123,6 +124,7 @@ struct BenchmarkReport
     bool sleepingEnabled = false;
     std::size_t narrowPhaseWorkers = 1;
     std::size_t solverWorkers = 1;
+    std::size_t broadPhaseWorkers = 1;
     double meanAwakeBodies = 0.0;
     double meanSleepingBodies = 0.0;
     double meanSolvedContacts = 0.0;

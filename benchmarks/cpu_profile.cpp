@@ -134,8 +134,8 @@ struct Totals
 
 int main(int argc, char** argv)
 {
-    if (argc < 2 || argc > 7) {
-        std::cerr << "Usage: phys_cpu_profile <spheres|boxes|mixed5k|mixed10k> [seconds=20] [--wait] [--sleep] [--workers=N] [--solver-workers=N]\n";
+    if (argc < 2 || argc > 8) {
+        std::cerr << "Usage: phys_cpu_profile <spheres|boxes|mixed5k|mixed10k> [seconds=20] [--wait] [--sleep] [--workers=N] [--solver-workers=N] [--broadphase-workers=N]\n";
         return 1;
     }
     std::string_view scene = argv[1];
@@ -159,6 +159,8 @@ int main(int argc, char** argv)
     bool workersSet = false;
     std::size_t solverWorkers = 1;
     bool solverWorkersSet = false;
+    std::size_t broadPhaseWorkers = 1;
+    bool broadPhaseWorkersSet = false;
     for (int index = 3; index < argc; ++index) {
         std::string_view option = argv[index];
         if (option == "--wait" && !wait)
@@ -187,6 +189,18 @@ int main(int argc, char** argv)
                 return 1;
             }
             solverWorkersSet = true;
+        }
+        else if (option.starts_with("--broadphase-workers=") && !broadPhaseWorkersSet) {
+            std::string_view count = option.substr(
+                std::string_view("--broadphase-workers=").size());
+            auto [end, error] = std::from_chars(
+                count.data(), count.data() + count.size(), broadPhaseWorkers);
+            if (error != std::errc{} || end != count.data() + count.size()
+                || broadPhaseWorkers == 0) {
+                std::cerr << "Broadphase workers must be a positive integer\n";
+                return 1;
+            }
+            broadPhaseWorkersSet = true;
         }
         else {
             std::cerr << "Unknown or duplicate profile option: " << option << '\n';
@@ -218,6 +232,7 @@ int main(int argc, char** argv)
     world.setSleepingEnabled(sleeping);
     world.setNarrowPhaseWorkerCount(narrowPhaseWorkers);
     world.setSolverWorkerCount(solverWorkers);
+    world.setBroadPhaseWorkerCount(broadPhaseWorkers);
     int warmup = 0;
     float warmLinear = 0;
     float warmAngular = 0;
@@ -256,6 +271,7 @@ int main(int argc, char** argv)
               << " sleeping_enabled=" << sleeping
               << " narrowphase_workers=" << narrowPhaseWorkers
               << " solver_workers=" << solverWorkers
+              << " broadphase_workers=" << broadPhaseWorkers
               << " sleeping_bodies=" << world.lastStepStats().sleepingBodyCount << std::endl;
     if (wait) {
         std::string line;

@@ -183,9 +183,16 @@ struct CellEntry
     std::size_t index;
 };
 
+struct SweepRange
+{
+    std::vector<BroadPhasePair> pairs;
+    std::size_t comparisons = 0;
+};
+
 struct BroadPhaseWorkspace
 {
     std::vector<SweepEntry> sweepEntries;
+    std::vector<SweepRange> sweepRanges;
     std::vector<BroadPhasePair> pairSortBuffer;
     std::vector<std::size_t> pairSortCounts;
     std::vector<double> gridWidths;
@@ -196,7 +203,8 @@ struct BroadPhaseWorkspace
 
 void findCandidatePairs(const std::vector<Aabb>& bounds,
     std::vector<BroadPhasePair>& pairs, BroadPhaseStats* stats,
-    BroadPhaseAlgorithm algorithm, BroadPhaseWorkspace& workspace);
+    BroadPhaseAlgorithm algorithm, BroadPhaseWorkspace& workspace,
+    ParallelFor* workers = nullptr, std::size_t workerCount = 1);
 
 struct PreparedBody
 {

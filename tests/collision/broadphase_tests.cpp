@@ -510,6 +510,48 @@ bool testParallelNarrowPhaseMatchesSerial()
         && copied.getSolverWorkerCount() == 4;
 }
 
+bool testParallelSapMatchesSerial()
+{
+    phys::PhysicsWorld serial;
+    serial.gravity = {};
+    std::string error;
+    for (int index = 0; index < 4096; ++index) {
+        phys::RigidBodyHandle body;
+        phys::ColliderHandle collider;
+        float x = static_cast<float>(index / 2) * 2.0f;
+        if (!serial.createSphere(0.5f, {x, 0.0f, 0.0f}, 1.0f, true,
+                                 0.0f, 0.5f, body, collider, error)) {
+            std::cerr << "parallel SAP setup failed: " << error << '\n';
+            return false;
+        }
+    }
+
+    phys::PhysicsWorld parallel = serial;
+    parallel.setBroadPhaseWorkerCount(4);
+    serial.step(0.0f);
+    parallel.step(0.0f);
+    if (parallel.getBroadPhaseWorkerCount() != 4
+        || parallel.contacts().size() != serial.contacts().size()
+        || parallel.lastStepStats().candidatePairs
+            != serial.lastStepStats().candidatePairs
+        || parallel.lastStepStats().broadPhaseDetails.xWindowComparisons
+            != serial.lastStepStats().broadPhaseDetails.xWindowComparisons)
+        return false;
+    for (std::size_t index = 0; index < serial.contacts().size(); ++index)
+        if (!sameContact(serial.contacts()[index], parallel.contacts()[index])) {
+            std::cerr << "parallel SAP candidate order differs\n";
+            return false;
+        }
+
+    try {
+        parallel.setBroadPhaseWorkerCount(0);
+        std::cerr << "zero broadphase workers were accepted\n";
+        return false;
+    }
+    catch (const std::invalid_argument&) {}
+    return parallel.getBroadPhaseWorkerCount() == 4;
+}
+
 }
 
 int main()
@@ -520,5 +562,6 @@ int main()
         && testWorldFilteringAndSlotReuse(phys::BroadPhaseAlgorithm::UniformGrid)
         && testWorldFilteringAndSlotReuse(phys::BroadPhaseAlgorithm::DynamicTree)
         && testWorldEvolutionMatches()
-        && testParallelNarrowPhaseMatchesSerial() ? 0 : 1;
+        && testParallelNarrowPhaseMatchesSerial()
+        && testParallelSapMatchesSerial() ? 0 : 1;
 }

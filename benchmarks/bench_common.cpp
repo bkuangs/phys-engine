@@ -93,6 +93,7 @@ namespace phys::bench
         world.setSleepingEnabled(options.sleepingEnabled);
         world.setNarrowPhaseWorkerCount(options.narrowPhaseWorkers);
         world.setSolverWorkerCount(options.solverWorkers);
+        world.setBroadPhaseWorkerCount(options.broadPhaseWorkers);
         double deadlineMs = 1000.0 / simulationHz;
         double warmupTotalMs = 0;
         double coldFirstStepMs = 0;
@@ -241,6 +242,7 @@ namespace phys::bench
         report.sleepingEnabled = world.isSleepingEnabled();
         report.narrowPhaseWorkers = world.getNarrowPhaseWorkerCount();
         report.solverWorkers = world.getSolverWorkerCount();
+        report.broadPhaseWorkers = world.getBroadPhaseWorkerCount();
         report.stepTime = stepStats.summarize();
         report.integrateVelocityTime = integrateVelocityStats.summarize();
         report.broadPhaseTime = broadPhaseStats.summarize();
@@ -317,9 +319,9 @@ namespace phys::bench
             options.sleepingEnabled = true;
             --argc;
         }
-        if (argc > 7)
+        if (argc > 8)
         {
-            std::cerr << "Usage: benchmark [measured_steps=1200] [sap|grid|tree] [mixed|spheres] [warmup_steps=240] [narrowphase_workers=1] [solver_workers=1] [--sleep]\n";
+            std::cerr << "Usage: benchmark [measured_steps=1200] [sap|grid|tree] [mixed|spheres] [warmup_steps=240] [narrowphase_workers=1] [solver_workers=1] [broadphase_workers=1] [--sleep]\n";
             return false;
         }
         if (argc > 1 && !parseSteps(argv[1], "Measured steps", false, options.measuredSteps))
@@ -342,15 +344,18 @@ namespace phys::bench
         if (argc > 5
             && !parseSteps(argv[5], "Narrowphase workers", false, options.narrowPhaseWorkers))
             return false;
-        return argc < 7
-            || parseSteps(argv[6], "Solver workers", false, options.solverWorkers);
+        if (argc > 6
+            && !parseSteps(argv[6], "Solver workers", false, options.solverWorkers))
+            return false;
+        return argc < 8
+            || parseSteps(argv[7], "Broadphase workers", false, options.broadPhaseWorkers);
     }
 
     int runScalingBenchmark(int argc, char **argv)
     {
         if (argc == 2 && (std::string_view(argv[1]) == "--help" || std::string_view(argv[1]) == "-h"))
         {
-            std::cout << "Usage: benchmark [measured_steps=1200] [sap|grid|tree] [mixed|spheres] [warmup_steps=240] [narrowphase_workers=1] [solver_workers=1] [--sleep]\n"
+            std::cout << "Usage: benchmark [measured_steps=1200] [sap|grid|tree] [mixed|spheres] [warmup_steps=240] [narrowphase_workers=1] [solver_workers=1] [broadphase_workers=1] [--sleep]\n"
                          "Step counts are exact for every size; body counts exclude the static floor.\n"
                          "Sleeping is disabled unless the trailing --sleep flag is supplied.\n";
             return 0;
@@ -366,7 +371,8 @@ namespace phys::bench
                           << options.warmupSteps << " warmup + " << options.measuredSteps
                           << " measured steps; sleeping " << (options.sleepingEnabled ? "enabled" : "disabled")
                           << "; narrowphase workers " << options.narrowPhaseWorkers
-                          << "; solver workers " << options.solverWorkers << '\n';
+                          << "; solver workers " << options.solverWorkers
+                          << "; broadphase workers " << options.broadPhaseWorkers << '\n';
                 runBenchmark(bodyCount, 120.0, 42, options).print(std::cout);
                 std::cout.flush();
             }
@@ -410,6 +416,7 @@ namespace phys::bench
         out << "Sleeping:                   " << (sleepingEnabled ? "enabled" : "disabled") << "\n";
         out << "Narrowphase workers:        " << narrowPhaseWorkers << "\n";
         out << "Solver workers:             " << solverWorkers << "\n";
+        out << "Broadphase workers:         " << broadPhaseWorkers << "\n";
         out << "Simulation frequency:       " << simulationHz << " Hz\n";
         out << "Broadphase algorithm:       "
             << (tree ? "dynamic AABB tree" : grid ? "uniform grid" : "sweep-and-prune") << "\n\n";

@@ -68,6 +68,9 @@ namespace phys
         // Includes the calling thread. A count of one keeps solving serial.
         void setSolverWorkerCount(std::size_t count);
         std::size_t getSolverWorkerCount() const { return solverWorkerCount; }
+        // Includes the calling thread. A count of one keeps broadphase serial.
+        void setBroadPhaseWorkerCount(std::size_t count);
+        std::size_t getBroadPhaseWorkerCount() const { return broadPhaseWorkerCount; }
 
         void step(float dt);
 
@@ -118,6 +121,7 @@ namespace phys
         std::unique_ptr<StepWorkspace> stepWorkspace;
         std::size_t narrowPhaseWorkerCount = 1;
         std::size_t solverWorkerCount = 1;
+        std::size_t broadPhaseWorkerCount = 1;
 
         struct SleepState
         {

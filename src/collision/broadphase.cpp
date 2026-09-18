@@ -194,7 +194,8 @@ std::vector<BroadPhasePair> BroadPhase::findCandidatePairs(
 
 void detail::findCandidatePairs(const std::vector<Aabb>& bounds,
     std::vector<BroadPhasePair>& pairs, BroadPhaseStats* stats,
-    BroadPhaseAlgorithm algorithm, BroadPhaseWorkspace& workspace)
+    BroadPhaseAlgorithm algorithm, BroadPhaseWorkspace& workspace,
+    ParallelFor* workers, std::size_t workerCount)
 {
     if (algorithm == BroadPhaseAlgorithm::DynamicTree)
         throw std::invalid_argument("DynamicTree requires a persistent DynamicAabbTree instance");
@@ -218,22 +219,60 @@ void detail::findCandidatePairs(const std::vector<Aabb>& bounds,
     auto sweepStart = Clock::now();
     pairs.clear();
     std::size_t xWindowComparisons = 0;
-    for (std::size_t i = 0; i < entries.size(); ++i) {
-        const SweepEntry& first = entries[i];
-        std::size_t j = i + 1;
-        for (; j < entries.size(); ++j) {
-            const SweepEntry& second = entries[j];
-            if (second.bounds.min.x > first.bounds.max.x)
-                break;
-            // Sorted minima and the break condition already guarantee X overlap.
-            if (first.bounds.min.y <= second.bounds.max.y
-                && first.bounds.max.y >= second.bounds.min.y
-                && first.bounds.min.z <= second.bounds.max.z
-                && first.bounds.max.z >= second.bounds.min.z)
-                pairs.push_back({std::min(first.originalIndex, second.originalIndex),
-                                 std::max(first.originalIndex, second.originalIndex)});
+    auto sweepRange = [&](std::size_t begin, std::size_t end,
+                          std::vector<BroadPhasePair>& output,
+                          std::size_t& comparisons) {
+        for (std::size_t i = begin; i < end; ++i) {
+            const SweepEntry& first = entries[i];
+            std::size_t j = i + 1;
+            for (; j < entries.size(); ++j) {
+                const SweepEntry& second = entries[j];
+                if (second.bounds.min.x > first.bounds.max.x)
+                    break;
+                // Sorted minima and the break condition already guarantee X overlap.
+                if (first.bounds.min.y <= second.bounds.max.y
+                    && first.bounds.max.y >= second.bounds.min.y
+                    && first.bounds.min.z <= second.bounds.max.z
+                    && first.bounds.max.z >= second.bounds.min.z)
+                    output.push_back({
+                        std::min(first.originalIndex, second.originalIndex),
+                        std::max(first.originalIndex, second.originalIndex)});
+            }
+            comparisons += j - i - 1;
         }
-        xWindowComparisons += j - i - 1;
+    };
+    constexpr std::size_t minimumParallelEntries = 4096;
+    if (workers && workerCount > 1 && entries.size() >= minimumParallelEntries) {
+        constexpr std::size_t rangesPerWorker = 16;
+        const std::size_t rangeCount =
+            workerCount > entries.size() / rangesPerWorker
+                ? entries.size()
+                : workerCount * rangesPerWorker;
+        auto& ranges = workspace.sweepRanges;
+        ranges.resize(rangeCount);
+        for (SweepRange& range : ranges) {
+            range.pairs.clear();
+            range.comparisons = 0;
+        }
+        auto sweepPartition = [&](std::size_t rangeIndex) {
+            std::size_t begin = entries.size() * rangeIndex / rangeCount;
+            std::size_t end = entries.size() * (rangeIndex + 1) / rangeCount;
+            SweepRange& range = ranges[rangeIndex];
+            sweepRange(begin, end, range.pairs, range.comparisons);
+        };
+        workers->run(workerCount, rangeCount, sweepPartition, 1);
+
+        std::size_t pairCount = 0;
+        for (const SweepRange& range : ranges) {
+            pairCount += range.pairs.size();
+            xWindowComparisons += range.comparisons;
+        }
+        if (pairs.capacity() < pairCount)
+            pairs.reserve(pairCount);
+        for (const SweepRange& range : ranges)
+            pairs.insert(pairs.end(), range.pairs.begin(), range.pairs.end());
+    } else {
+        sweepRange(0, entries.size(), pairs, xWindowComparisons);
     }
 
     auto pairSortStart = Clock::now();

@@ -84,6 +84,7 @@ namespace phys
           stats(other.stats),
           narrowPhaseWorkerCount(other.narrowPhaseWorkerCount),
           solverWorkerCount(other.solverWorkerCount),
+          broadPhaseWorkerCount(other.broadPhaseWorkerCount),
           sleepingEnabled(other.sleepingEnabled),
           sleepGravity(other.sleepGravity),
           sleepStates(other.sleepStates),
@@ -100,6 +101,7 @@ namespace phys
         broadPhaseAlgorithm = other.broadPhaseAlgorithm;
         narrowPhaseWorkerCount = other.narrowPhaseWorkerCount;
         solverWorkerCount = other.solverWorkerCount;
+        broadPhaseWorkerCount = other.broadPhaseWorkerCount;
         slots = other.slots;
         freeList = other.freeList;
         colliderSlots = other.colliderSlots;
@@ -132,7 +134,8 @@ namespace phys
         if (count == 0)
             throw std::invalid_argument("Narrowphase worker count must be positive");
         if (stepWorkspace)
-            stepWorkspace->workers.configure(std::max(count, solverWorkerCount));
+            stepWorkspace->workers.configure(std::max(
+                {count, solverWorkerCount, broadPhaseWorkerCount}));
         narrowPhaseWorkerCount = count;
     }
 
@@ -141,8 +144,19 @@ namespace phys
         if (count == 0)
             throw std::invalid_argument("Solver worker count must be positive");
         if (stepWorkspace)
-            stepWorkspace->workers.configure(std::max(narrowPhaseWorkerCount, count));
+            stepWorkspace->workers.configure(std::max(
+                {narrowPhaseWorkerCount, count, broadPhaseWorkerCount}));
         solverWorkerCount = count;
+    }
+
+    void PhysicsWorld::setBroadPhaseWorkerCount(std::size_t count)
+    {
+        if (count == 0)
+            throw std::invalid_argument("Broadphase worker count must be positive");
+        if (stepWorkspace)
+            stepWorkspace->workers.configure(std::max(
+                {narrowPhaseWorkerCount, solverWorkerCount, count}));
+        broadPhaseWorkerCount = count;
     }
 
     RigidBodyHandle PhysicsWorld::addBody(const RigidBody &body)
@@ -604,7 +618,8 @@ namespace phys
         }
         else
             detail::findCandidatePairs(bounds, candidatePairs,
-                &stats.broadPhaseDetails, broadPhaseAlgorithm, stepWorkspace.broadPhase);
+                &stats.broadPhaseDetails, broadPhaseAlgorithm, stepWorkspace.broadPhase,
+                &stepWorkspace.workers, broadPhaseWorkerCount);
         auto filterStart = Clock::now();
         if (broadPhaseAlgorithm != BroadPhaseAlgorithm::DynamicTree)
             for (BroadPhasePair &pair : candidatePairs)
