@@ -146,3 +146,15 @@ be added together. Detailed protocols and measurements remain in
   scaling in heavily connected scenes.
 - **Behavior:** Body velocities, contact impulses, and fixed-step output remain
   exact.
+
+## 15. Deterministic parallel SAP sweep
+
+- **Problem:** At 10,000 bodies, the serial SAP sweep had become the largest
+  remaining simulation stage.
+- **Solution:** Scan reusable contiguous SAP ranges concurrently, then restore
+  canonical candidate order with the existing counting sort.
+- **Gain:** Four workers reduced sweep time by about 70%, broadphase by 57-61%,
+  and full-step time by 18-23%.
+- **Caveat:** Parallel SAP is opt-in, and scenes below 4,096 active bounds stay
+  serial.
+- **Behavior:** Candidate order and fixed-step simulation output remain exact.
