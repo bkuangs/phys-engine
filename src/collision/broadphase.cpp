@@ -24,6 +24,41 @@ void sortPairs(std::vector<BroadPhasePair>& pairs)
     });
 }
 
+void sortPairsLinear(std::vector<BroadPhasePair>& pairs, std::size_t keyCount,
+                     detail::BroadPhaseWorkspace& workspace)
+{
+    if (pairs.size() < 2)
+        return;
+    // Avoid count-array work and scratch storage for sparse output.
+    if (pairs.size() < keyCount)
+        return sortPairs(pairs);
+
+    auto& buffer = workspace.pairSortBuffer;
+    auto& counts = workspace.pairSortCounts;
+    buffer.resize(pairs.size());
+
+    auto stableCountingPass = [&](const auto& input, auto& output, auto key) {
+        counts.assign(keyCount, 0);
+        for (const BroadPhasePair& pair : input)
+            ++counts[key(pair)];
+        std::size_t offset = 0;
+        for (std::size_t& count : counts) {
+            std::size_t frequency = count;
+            count = offset;
+            offset += frequency;
+        }
+        for (const BroadPhasePair& pair : input)
+            output[counts[key(pair)]++] = pair;
+    };
+
+    stableCountingPass(pairs, buffer, [](const BroadPhasePair& pair) {
+        return pair.second;
+    });
+    stableCountingPass(buffer, pairs, [](const BroadPhasePair& pair) {
+        return pair.first;
+    });
+}
+
 bool gridRange(const Aabb& bounds, double cellSize,
                std::array<int32_t, 3>& firstCell, std::array<int, 3>& cellCounts)
 {
@@ -203,7 +238,7 @@ void detail::findCandidatePairs(const std::vector<Aabb>& bounds,
 
     auto pairSortStart = Clock::now();
     // Preserve the original all-pairs traversal order for the contact solver.
-    sortPairs(pairs);
+    sortPairsLinear(pairs, bounds.size(), workspace);
     if (stats) {
         auto pairSortEnd = Clock::now();
         *stats = {

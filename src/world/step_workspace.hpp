@@ -30,6 +30,8 @@ struct CellEntry
 struct BroadPhaseWorkspace
 {
     std::vector<SweepEntry> sweepEntries;
+    std::vector<BroadPhasePair> pairSortBuffer;
+    std::vector<std::size_t> pairSortCounts;
     std::vector<double> gridWidths;
     std::vector<CellEntry> gridEntries;
     std::vector<uint8_t> gridMembership;

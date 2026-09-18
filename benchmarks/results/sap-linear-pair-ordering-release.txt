@@ -1,0 +1,77 @@
+SAP Linear Pair Ordering - Release Comparison
+=============================================
+
+Date:                       2026-09-17
+Hardware:                   Apple M2, macOS arm64
+Compiler/build:             Apple Clang, Release (-O3 -DNDEBUG), C++20
+Control revision:           6c08170
+Current source:             experiment/sap-linear-pair-ordering working tree
+Scaling command:            phys_collision_bench 1200 sap mixed 240
+Focused commands:           phys_cpu_profile mixed5k 3
+                            phys_cpu_profile mixed10k 3
+Scene:                      Seeded mixed floor, sleeping disabled
+Run order:                  control/current, current/control, control/current
+Statistic:                  Median of three per-run means
+
+Implementation
+--------------
+
+SAP emits canonical pairs whose two indices are bounded by the active collider
+count. Instead of comparison-sorting those pairs, the retained path performs
+two stable counting passes: first by the second index and then by the first.
+The result is the same lexicographic order required by the solver.
+
+The temporary pair buffer and count array are retained in the world's existing
+broadphase workspace. Sparse outputs continue to use `std::sort`, avoiding
+count-array work and scratch storage when the key range exceeds the pair count.
+The uniform-grid and dynamic-tree ordering paths are unchanged.
+
+Fixed-step results
+------------------
+
+Three interleaved runs used 240 warmup and 1,200 measured steps:
+
+bodies,control_step_ms,current_step_ms,control_broadphase_ms,current_broadphase_ms,control_pair_sort_ms,current_pair_sort_ms,pair_sort_change
+5000,8.26,7.21,2.19,1.63,0.5153,0.0466,-91.0%
+10000,17.28,16.59,5.13,4.20,1.0955,0.1048,-90.4%
+
+The three per-run means were:
+
+bodies,variant,step_ms,broadphase_ms,pair_sort_ms
+5000,control,8.26 / 8.54 / 7.56,2.19 / 2.27 / 2.04,0.5153 / 0.5405 / 0.4857
+5000,current,7.26 / 7.21 / 7.14,1.64 / 1.63 / 1.63,0.0466 / 0.0479 / 0.0464
+10000,control,23.33 / 17.28 / 16.09,5.98 / 5.13 / 4.88,1.2680 / 1.0955 / 1.0342
+10000,current,15.93 / 16.59 / 19.30,4.11 / 4.20 / 4.82,0.1011 / 0.1048 / 0.1279
+
+Machine-load outliers affected whole-step values, especially at 10,000 bodies,
+but the instrumented pair-ordering reduction remained consistent.
+
+Focused sustained results
+-------------------------
+
+Three interleaved three-second runs isolated each target size:
+
+bodies,control_step_ms,current_step_ms,step_change,control_broadphase_ms,current_broadphase_ms,broadphase_change
+5000,7.1515,6.8936,-3.6%,1.9848,1.5849,-20.2%
+10000,15.4705,14.7683,-4.5%,4.8585,3.9595,-18.5%
+
+These focused runs provide the conservative full-step comparison. Their
+non-broadphase stages were approximately flat relative to the saved
+broadphase time.
+
+Behavior
+--------
+
+The fixed-step runs matched exactly:
+
+bodies,mean_candidates,mean_manifolds,mean_points,final_floor_penetration,final_max_linear_speed,final_max_angular_speed
+5000,12323.23,8171.82,12110.08,0.0055,2.0413,3.7489
+10000,24853.50,16427.01,24119.39,0.0055,3.7472,4.3338
+
+Decision
+--------
+
+Retain. Pair ordering improves by about 90%, comfortably exceeding the 50%
+subphase gate. The conservative focused runs improve full-step time by 3.6%
+and 4.5%, exceeding the 2% gate at both target sizes. Output order and all
+reported behavior metrics remain exact.

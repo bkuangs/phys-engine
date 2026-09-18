@@ -1173,6 +1173,30 @@ The
 [full comparison](../benchmarks/results/derived-tangent-velocity-release.txt)
 records the run-level values.
 
+## Linear SAP pair ordering
+
+SAP candidate indices are bounded by the active collider count. Its emitted
+pairs now use two stable counting passes, first by the second index and then by
+the first, instead of comparison sorting. This preserves the exact
+lexicographic order consumed by the solver. Reusable broadphase workspace holds
+the temporary pair and count arrays; sparse outputs fall back to `std::sort`.
+The grid and dynamic-tree paths are unchanged.
+
+The fixed-step benchmark reduced pair-ordering time from 0.5153 to 0.0466 ms
+at 5,000 bodies and from 1.0955 to 0.1048 ms at 10,000, about 90% at both
+sizes. Focused three-run profiles provided the more stable full-step result:
+
+| Bodies | Control step | Linear ordering | Control broadphase | Linear broadphase |
+| ---: | ---: | ---: | ---: | ---: |
+| 5,000 | 7.1515 ms | 6.8936 ms | 1.9848 ms | 1.5849 ms |
+| 10,000 | 15.4705 ms | 14.7683 ms | 4.8585 ms | 3.9595 ms |
+
+Full-step time improved by 3.6% and 4.5%, while broadphase improved by 20.2%
+and 18.5%. Candidate, manifold, contact-point, penetration, and final-speed
+metrics matched exactly. The
+[full comparison](../benchmarks/results/sap-linear-pair-ordering-release.txt)
+records both the fixed-step and focused runs.
+
 ## Reproducing the Release workload
 
 Build the selected source revision in a separate directory to leave the
