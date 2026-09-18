@@ -3,8 +3,8 @@
 This is the short version of the optimizations retained on `main`. Measurements
 come from controlled Release comparisons at the time each change was made.
 Different rows use different workloads and baselines, so their gains should not
-be added together. See the [current performance snapshot](performance.md) and
-linked result files for protocols and raw measurements.
+be added together. Detailed protocols and measurements remain in
+[`benchmarks/results`](../benchmarks/results).
 
 ## 1. Sweep-and-prune broadphase
 
@@ -121,3 +121,15 @@ linked result files for protocols and raw measurements.
 - **Gain:** Pair ordering improved by about 90%, broadphase by 18-20%, and full
   steps by 3.6-4.5%.
 - **Behavior:** Candidate order and simulation results remain exact.
+
+## 13. Deterministic parallel narrowphase
+
+- **Problem:** Contact generation for independent candidate pairs ran serially,
+  consuming about 1.8 ms at 5,000 bodies and 3.4 ms at 10,000.
+- **Solution:** Use persistent world-owned workers and per-candidate result
+  slots, then compact contacts in their original order.
+- **Gain:** Four workers reduced narrowphase time by about 66% and full-step
+  time by 15-17%.
+- **Caveat:** Parallel narrowphase is opt-in; one worker remains the default,
+  and small candidate sets stay serial.
+- **Behavior:** Contact order and fixed-step simulation output remain exact.
