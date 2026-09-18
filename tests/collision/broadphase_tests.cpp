@@ -415,6 +415,84 @@ bool testWorldEvolutionMatches()
     return true;
 }
 
+bool sameContact(const phys::ContactManifold& left, const phys::ContactManifold& right)
+{
+    if (!(left.bodyA == right.bodyA && left.bodyB == right.bodyB)
+        || left.pointCount != right.pointCount
+        || left.friction != right.friction || left.restitution != right.restitution
+        || left.normal.x != right.normal.x || left.normal.y != right.normal.y
+        || left.normal.z != right.normal.z)
+        return false;
+    for (uint32_t index = 0; index < left.pointCount; ++index) {
+        const auto& a = left.points[index];
+        const auto& b = right.points[index];
+        if (a.localAnchorA.x != b.localAnchorA.x
+            || a.localAnchorA.y != b.localAnchorA.y
+            || a.localAnchorA.z != b.localAnchorA.z
+            || a.localAnchorB.x != b.localAnchorB.x
+            || a.localAnchorB.y != b.localAnchorB.y
+            || a.localAnchorB.z != b.localAnchorB.z
+            || a.penetration != b.penetration)
+            return false;
+    }
+    return true;
+}
+
+bool testParallelNarrowPhaseMatchesSerial()
+{
+    phys::PhysicsWorld serial;
+    serial.gravity = {};
+    std::string error;
+    for (int index = 0; index < 92; ++index) {
+        phys::RigidBodyHandle body;
+        phys::ColliderHandle collider;
+        if (!serial.createSphere(1.0f, {}, 1.0f, true, 0.1f, 0.5f,
+                                 body, collider, error)) {
+            std::cerr << "parallel narrowphase setup failed: " << error << '\n';
+            return false;
+        }
+    }
+
+    phys::PhysicsWorld parallel = serial;
+    parallel.setNarrowPhaseWorkerCount(4);
+    serial.step(0.0f);
+    parallel.step(0.0f);
+    if (parallel.getNarrowPhaseWorkerCount() != 4
+        || parallel.contacts().size() != serial.contacts().size()) {
+        std::cerr << "parallel narrowphase contact count differs\n";
+        return false;
+    }
+    for (std::size_t index = 0; index < serial.contacts().size(); ++index)
+        if (!sameContact(serial.contacts()[index], parallel.contacts()[index])) {
+            std::cerr << "parallel narrowphase contact or ordering differs\n";
+            return false;
+        }
+
+    phys::PhysicsWorld copied = parallel;
+    phys::PhysicsWorld moved = std::move(parallel);
+    copied.step(0.0f);
+    moved.step(0.0f);
+    if (copied.getNarrowPhaseWorkerCount() != 4
+        || moved.getNarrowPhaseWorkerCount() != 4
+        || copied.contacts().size() != serial.contacts().size()
+        || moved.contacts().size() != serial.contacts().size())
+        return false;
+
+    moved.setNarrowPhaseWorkerCount(1);
+    moved.step(0.0f);
+    if (moved.getNarrowPhaseWorkerCount() != 1
+        || moved.contacts().size() != serial.contacts().size())
+        return false;
+
+    try {
+        copied.setNarrowPhaseWorkerCount(0);
+        std::cerr << "zero narrowphase workers were accepted\n";
+        return false;
+    }
+    catch (const std::invalid_argument&) {}
+    return copied.getNarrowPhaseWorkerCount() == 4;
+}
+
 }
 
 int main()
@@ -424,5 +502,6 @@ int main()
         && testWorldFilteringAndSlotReuse(phys::BroadPhaseAlgorithm::SweepAndPrune)
         && testWorldFilteringAndSlotReuse(phys::BroadPhaseAlgorithm::UniformGrid)
         && testWorldFilteringAndSlotReuse(phys::BroadPhaseAlgorithm::DynamicTree)
-        && testWorldEvolutionMatches() ? 0 : 1;
+        && testWorldEvolutionMatches()
+        && testParallelNarrowPhaseMatchesSerial() ? 0 : 1;
 }

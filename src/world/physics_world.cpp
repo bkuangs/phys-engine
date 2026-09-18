@@ -3,10 +3,17 @@
 #include <phys/collision/narrowphase.hpp>
 #include <phys/solver/sequential_impulse_solver.hpp>
 #include "step_workspace.hpp"
-#include <chrono>
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cmath>
+#include <condition_variable>
+#include <cstdint>
+#include <exception>
 #include <limits>
+#include <mutex>
+#include <stdexcept>
+#include <thread>
 
 namespace phys
 {
@@ -43,6 +50,162 @@ namespace phys
             return sameVector(std::get<Box>(a.shape).halfExtents, std::get<Box>(b.shape).halfExtents);
         }
 
+        class ParallelFor
+        {
+        public:
+            using Task = void (*)(void *, std::size_t);
+
+            ~ParallelFor()
+            {
+                stop();
+            }
+
+            ParallelFor(const ParallelFor &) = delete;
+            ParallelFor &operator=(const ParallelFor &) = delete;
+
+            ParallelFor() = default;
+
+            void configure(std::size_t workerCount)
+            {
+                const std::size_t backgroundCount = workerCount - 1;
+                if (workers.size() == backgroundCount)
+                    return;
+
+                stop();
+                try
+                {
+                    workers.reserve(backgroundCount);
+                    for (std::size_t index = 0; index < backgroundCount; ++index)
+                        workers.emplace_back([this] { workerLoop(); });
+                }
+                catch (...)
+                {
+                    stop();
+                    throw;
+                }
+            }
+
+            template <typename Function>
+            void run(std::size_t workerCount, std::size_t itemCount, Function &function)
+            {
+                configure(workerCount);
+                if (workers.empty() || itemCount == 0)
+                {
+                    for (std::size_t index = 0; index < itemCount; ++index)
+                        function(index);
+                    return;
+                }
+
+                auto invoke = [](void *context, std::size_t index) {
+                    (*static_cast<Function *>(context))(index);
+                };
+                {
+                    std::lock_guard lock(mutex);
+                    task = invoke;
+                    taskContext = &function;
+                    taskCount = itemCount;
+                    nextIndex.store(0, std::memory_order_relaxed);
+                    unfinishedWorkers = workers.size();
+                    failure = nullptr;
+                    ++generation;
+                }
+                workAvailable.notify_all();
+                runChunks();
+
+                std::unique_lock lock(mutex);
+                workFinished.wait(lock, [&] { return unfinishedWorkers == 0; });
+                std::exception_ptr taskFailure = failure;
+                lock.unlock();
+                if (taskFailure)
+                    std::rethrow_exception(taskFailure);
+            }
+
+        private:
+            static constexpr std::size_t chunkSize = 64;
+
+            void runChunks()
+            {
+                try
+                {
+                    for (;;)
+                    {
+                        std::size_t begin = nextIndex.fetch_add(
+                            chunkSize, std::memory_order_relaxed);
+                        if (begin >= taskCount)
+                            return;
+                        std::size_t end = std::min(begin + chunkSize, taskCount);
+                        for (std::size_t index = begin; index < end; ++index)
+                            task(taskContext, index);
+                    }
+                }
+                catch (...)
+                {
+                    std::lock_guard lock(mutex);
+                    if (!failure)
+                        failure = std::current_exception();
+                    nextIndex.store(taskCount, std::memory_order_relaxed);
+                }
+            }
+
+            void workerLoop()
+            {
+                std::size_t observedGeneration = 0;
+                for (;;)
+                {
+                    std::unique_lock lock(mutex);
+                    workAvailable.wait(lock, [&] {
+                        return stopping || generation != observedGeneration;
+                    });
+                    if (stopping)
+                        return;
+                    observedGeneration = generation;
+                    lock.unlock();
+
+                    runChunks();
+
+                    lock.lock();
+                    if (--unfinishedWorkers == 0)
+                        workFinished.notify_one();
+                }
+            }
+
+            void stop()
+            {
+                {
+                    std::lock_guard lock(mutex);
+                    stopping = true;
+                }
+                workAvailable.notify_all();
+                for (std::thread &worker : workers)
+                    if (worker.joinable())
+                        worker.join();
+                workers.clear();
+                stopping = false;
+                generation = 0;
+            }
+
+            std::vector<std::thread> workers;
+            std::mutex mutex;
+            std::condition_variable workAvailable;
+            std::condition_variable workFinished;
+            std::atomic<std::size_t> nextIndex = 0;
+            Task task = nullptr;
+            void *taskContext = nullptr;
+            std::size_t taskCount = 0;
+            std::size_t unfinishedWorkers = 0;
+            std::size_t generation = 0;
+            std::exception_ptr failure;
+            bool stopping = false;
+        };
+
+        struct NarrowPhaseResult
+        {
+            ContactManifold manifold{};
+            std::uint8_t shapePair = 0;
+            bool evaluated = false;
+            bool hasContact = false;
+        };
+
     }
 
     struct PhysicsWorld::StepWorkspace
@@ -51,9 +214,11 @@ namespace phys
         std::vector<uint32_t> colliderIndices;
         std::vector<std::size_t> collidersPerBody;
         std::vector<BroadPhasePair> candidatePairs;
+        std::vector<NarrowPhaseResult> narrowPhaseResults;
         std::vector<std::pair<DynamicAabbTree::ProxyId, DynamicAabbTree::ProxyId>> treeStack;
         detail::BroadPhaseWorkspace broadPhase;
         detail::SolverWorkspace solver;
+        ParallelFor narrowPhaseWorkers;
     };
 
     PhysicsWorld::PhysicsWorld() = default;
@@ -70,6 +235,7 @@ namespace phys
           currentContacts(other.currentContacts),
           cachedContacts(other.cachedContacts),
           stats(other.stats),
+          narrowPhaseWorkerCount(other.narrowPhaseWorkerCount),
           sleepingEnabled(other.sleepingEnabled),
           sleepGravity(other.sleepGravity),
           sleepStates(other.sleepStates),
@@ -84,6 +250,7 @@ namespace phys
 
         gravity = other.gravity;
         broadPhaseAlgorithm = other.broadPhaseAlgorithm;
+        narrowPhaseWorkerCount = other.narrowPhaseWorkerCount;
         slots = other.slots;
         freeList = other.freeList;
         colliderSlots = other.colliderSlots;
@@ -109,6 +276,15 @@ namespace phys
         if (!stepWorkspace)
             stepWorkspace = std::make_unique<StepWorkspace>();
         return *stepWorkspace;
+    }
+
+    void PhysicsWorld::setNarrowPhaseWorkerCount(std::size_t count)
+    {
+        if (count == 0)
+            throw std::invalid_argument("Narrowphase worker count must be positive");
+        if (stepWorkspace)
+            stepWorkspace->narrowPhaseWorkers.configure(count);
+        narrowPhaseWorkerCount = count;
     }
 
     RigidBodyHandle PhysicsWorld::addBody(const RigidBody &body)
@@ -592,15 +768,19 @@ namespace phys
         currentContacts.clear();
         NarrowPhaseStats narrowPhaseDetails;
 
-        for (const auto &pair : candidatePairs)
+        const PhysicsWorld &readOnlyWorld = *this;
+        auto generateContact = [&](std::size_t pairIndex, NarrowPhaseResult &result)
         {
-            ColliderSlot &firstSlot = colliderSlots[pair.first];
-            ColliderSlot &secondSlot = colliderSlots[pair.second];
+            result.evaluated = false;
+            result.hasContact = false;
+            const BroadPhasePair &pair = candidatePairs[pairIndex];
+            const ColliderSlot &firstSlot = colliderSlots[pair.first];
+            const ColliderSlot &secondSlot = colliderSlots[pair.second];
 
-            const RigidBody *bodyA = getBody(firstSlot.collider.body);
-            const RigidBody *bodyB = getBody(secondSlot.collider.body);
+            const RigidBody *bodyA = readOnlyWorld.getBody(firstSlot.collider.body);
+            const RigidBody *bodyB = readOnlyWorld.getBody(secondSlot.collider.body);
             if (!bodyA || !bodyB)
-                continue;
+                return;
 
             Transform bodyTransformA{bodyA->getPosition(), bodyA->getRotation()};
             Transform bodyTransformB{bodyB->getPosition(), bodyB->getRotation()};
@@ -613,41 +793,73 @@ namespace phys
                                               secondSlot.collider.localTransform.position),
                 bodyTransformB.orientation * secondSlot.collider.localTransform.orientation};
 
-            std::size_t shapePair = firstSlot.collider.shape.index()
-                + secondSlot.collider.shape.index();
-            if (shapePair == 0)
+            result.evaluated = true;
+            result.shapePair = static_cast<std::uint8_t>(
+                firstSlot.collider.shape.index() + secondSlot.collider.shape.index());
+            result.hasContact = NarrowPhase::generateContact(
+                firstSlot.collider, transformA,
+                secondSlot.collider, transformB,
+                result.manifold);
+            if (!result.hasContact)
+                return;
+
+            for (uint32_t index = 0; index < result.manifold.pointCount; ++index)
+            {
+                ContactPoint &point = result.manifold.points[index];
+                point.localAnchorA = firstSlot.collider.localTransform.position
+                    + firstSlot.collider.localTransform.orientation.rotate(point.localAnchorA);
+                point.localAnchorB = secondSlot.collider.localTransform.position
+                    + secondSlot.collider.localTransform.orientation.rotate(point.localAnchorB);
+            }
+            result.manifold.restitution = std::max(
+                bodyA->restitution, bodyB->restitution);
+            result.manifold.friction = std::sqrt(
+                std::max(bodyA->friction, 0.0f) * std::max(bodyB->friction, 0.0f));
+        };
+        auto appendResult = [&](const NarrowPhaseResult &result)
+        {
+            if (!result.evaluated)
+                return;
+            if (result.shapePair == 0)
                 ++narrowPhaseDetails.sphereSphereCandidates;
-            else if (shapePair == 1)
+            else if (result.shapePair == 1)
                 ++narrowPhaseDetails.sphereBoxCandidates;
             else
                 ++narrowPhaseDetails.boxBoxCandidates;
 
-            ContactManifold manifold;
-            if (NarrowPhase::generateContact(
-                    firstSlot.collider, transformA,
-                    secondSlot.collider, transformB,
-                    manifold))
+            if (!result.hasContact)
+                return;
+            currentContacts.push_back(result.manifold);
+            if (result.shapePair == 0)
+                ++narrowPhaseDetails.sphereSphereContacts;
+            else if (result.shapePair == 1)
+                ++narrowPhaseDetails.sphereBoxContacts;
+            else
+                ++narrowPhaseDetails.boxBoxContacts;
+        };
+
+        constexpr std::size_t minimumParallelCandidates = 4096;
+        if (narrowPhaseWorkerCount == 1
+            || candidatePairs.size() < minimumParallelCandidates)
+        {
+            NarrowPhaseResult result;
+            for (std::size_t index = 0; index < candidatePairs.size(); ++index)
             {
-                for (uint32_t index = 0; index < manifold.pointCount; ++index)
-                {
-                    ContactPoint &point = manifold.points[index];
-                    point.localAnchorA = firstSlot.collider.localTransform.position + firstSlot.collider.localTransform.orientation.rotate(
-                                                                                          point.localAnchorA);
-                    point.localAnchorB = secondSlot.collider.localTransform.position + secondSlot.collider.localTransform.orientation.rotate(
-                                                                                           point.localAnchorB);
-                }
-                manifold.restitution = std::max(
-                    bodyA->restitution, bodyB->restitution);
-                manifold.friction = std::sqrt(
-                    std::max(bodyA->friction, 0.0f) * std::max(bodyB->friction, 0.0f));
-                currentContacts.push_back(manifold);
-                if (shapePair == 0)
-                    ++narrowPhaseDetails.sphereSphereContacts;
-                else if (shapePair == 1)
-                    ++narrowPhaseDetails.sphereBoxContacts;
-                else
-                    ++narrowPhaseDetails.boxBoxContacts;
+                generateContact(index, result);
+                appendResult(result);
             }
+        }
+        else
+        {
+            auto &results = stepWorkspace.narrowPhaseResults;
+            results.resize(candidatePairs.size());
+            auto generateAtIndex = [&](std::size_t index) {
+                generateContact(index, results[index]);
+            };
+            stepWorkspace.narrowPhaseWorkers.run(
+                narrowPhaseWorkerCount, candidatePairs.size(), generateAtIndex);
+            for (const NarrowPhaseResult &result : results)
+                appendResult(result);
         }
         stats.narrowPhaseDetails = narrowPhaseDetails;
         stats.narrowPhaseMs = elapsedMs(narrowPhaseStart);

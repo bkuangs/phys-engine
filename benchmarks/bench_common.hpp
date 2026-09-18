@@ -20,6 +20,7 @@ struct ScalingOptions
     BroadPhaseAlgorithm algorithm = BroadPhaseAlgorithm::SweepAndPrune;
     ScalingScene scene = ScalingScene::MixedFloor;
     bool sleepingEnabled = false;
+    std::size_t narrowPhaseWorkers = 1;
 };
 
 struct BenchmarkObject
@@ -114,6 +115,7 @@ struct BenchmarkReport
     float finalMaxLinearSpeed = 0.0f;
     float finalMaxAngularSpeed = 0.0f;
     bool sleepingEnabled = false;
+    std::size_t narrowPhaseWorkers = 1;
     double meanAwakeBodies = 0.0;
     double meanSleepingBodies = 0.0;
     double meanSolvedContacts = 0.0;

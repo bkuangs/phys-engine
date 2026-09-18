@@ -91,6 +91,7 @@ namespace phys::bench
         PhysicsWorld &world = scene.world;
         world.broadPhaseAlgorithm = options.algorithm;
         world.setSleepingEnabled(options.sleepingEnabled);
+        world.setNarrowPhaseWorkerCount(options.narrowPhaseWorkers);
         double deadlineMs = 1000.0 / simulationHz;
         double warmupTotalMs = 0;
         double coldFirstStepMs = 0;
@@ -228,6 +229,7 @@ namespace phys::bench
         report.boxBodies = scene.boxes;
         report.floorSize = scene.floorSize;
         report.sleepingEnabled = world.isSleepingEnabled();
+        report.narrowPhaseWorkers = world.getNarrowPhaseWorkerCount();
         report.stepTime = stepStats.summarize();
         report.integrateVelocityTime = integrateVelocityStats.summarize();
         report.broadPhaseTime = broadPhaseStats.summarize();
@@ -297,9 +299,9 @@ namespace phys::bench
             options.sleepingEnabled = true;
             --argc;
         }
-        if (argc > 5)
+        if (argc > 6)
         {
-            std::cerr << "Usage: benchmark [measured_steps=1200] [sap|grid|tree] [mixed|spheres] [warmup_steps=240] [--sleep]\n";
+            std::cerr << "Usage: benchmark [measured_steps=1200] [sap|grid|tree] [mixed|spheres] [warmup_steps=240] [narrowphase_workers=1] [--sleep]\n";
             return false;
         }
         if (argc > 1 && !parseSteps(argv[1], "Measured steps", false, options.measuredSteps))
@@ -317,14 +319,17 @@ namespace phys::bench
                 return false;
             }
         }
-        return argc < 5 || parseSteps(argv[4], "Warmup steps", true, options.warmupSteps);
+        if (argc > 4 && !parseSteps(argv[4], "Warmup steps", true, options.warmupSteps))
+            return false;
+        return argc < 6
+            || parseSteps(argv[5], "Narrowphase workers", false, options.narrowPhaseWorkers);
     }
 
     int runScalingBenchmark(int argc, char **argv)
     {
         if (argc == 2 && (std::string_view(argv[1]) == "--help" || std::string_view(argv[1]) == "-h"))
         {
-            std::cout << "Usage: benchmark [measured_steps=1200] [sap|grid|tree] [mixed|spheres] [warmup_steps=240] [--sleep]\n"
+            std::cout << "Usage: benchmark [measured_steps=1200] [sap|grid|tree] [mixed|spheres] [warmup_steps=240] [narrowphase_workers=1] [--sleep]\n"
                          "Step counts are exact for every size; body counts exclude the static floor.\n"
                          "Sleeping is disabled unless the trailing --sleep flag is supplied.\n";
             return 0;
@@ -338,7 +343,8 @@ namespace phys::bench
             {
                 std::cerr << "Benchmarking " << bodyCount << " dynamic bodies: "
                           << options.warmupSteps << " warmup + " << options.measuredSteps
-                          << " measured steps; sleeping " << (options.sleepingEnabled ? "enabled" : "disabled") << '\n';
+                          << " measured steps; sleeping " << (options.sleepingEnabled ? "enabled" : "disabled")
+                          << "; narrowphase workers " << options.narrowPhaseWorkers << '\n';
                 runBenchmark(bodyCount, 120.0, 42, options).print(std::cout);
                 std::cout.flush();
             }
@@ -380,6 +386,7 @@ namespace phys::bench
         out << "Dynamic shapes:             " << sphereBodies << " spheres, " << boxBodies << " boxes\n";
         out << "Scene:                      " << (scene == ScalingScene::MixedFloor ? "mixed-floor" : "sphere field") << "\n";
         out << "Sleeping:                   " << (sleepingEnabled ? "enabled" : "disabled") << "\n";
+        out << "Narrowphase workers:        " << narrowPhaseWorkers << "\n";
         out << "Simulation frequency:       " << simulationHz << " Hz\n";
         out << "Broadphase algorithm:       "
             << (tree ? "dynamic AABB tree" : grid ? "uniform grid" : "sweep-and-prune") << "\n\n";

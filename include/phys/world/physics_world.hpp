@@ -1,4 +1,5 @@
 #pragma once
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <vector>
@@ -61,6 +62,9 @@ namespace phys
 
         void setSleepingEnabled(bool enabled);
         bool isSleepingEnabled() const { return sleepingEnabled; }
+        // Includes the calling thread. A count of one keeps narrowphase serial.
+        void setNarrowPhaseWorkerCount(std::size_t count);
+        std::size_t getNarrowPhaseWorkerCount() const { return narrowPhaseWorkerCount; }
 
         void step(float dt);
 
@@ -109,6 +113,7 @@ namespace phys
 
         struct StepWorkspace;
         std::unique_ptr<StepWorkspace> stepWorkspace;
+        std::size_t narrowPhaseWorkerCount = 1;
 
         struct SleepState
         {

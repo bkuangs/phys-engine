@@ -62,14 +62,16 @@ bool testOptions()
     if (!parse({"benchmark"}, options)
         || options.measuredSteps != 1200 || options.warmupSteps != 240
         || options.scene != phys::bench::ScalingScene::MixedFloor
-        || options.algorithm != phys::BroadPhaseAlgorithm::SweepAndPrune || options.sleepingEnabled)
+        || options.algorithm != phys::BroadPhaseAlgorithm::SweepAndPrune
+        || options.sleepingEnabled || options.narrowPhaseWorkers != 1)
         return false;
     if (!parse({"benchmark", "--sleep"}, options) || !options.sleepingEnabled
         || options.measuredSteps != 1200 || options.warmupSteps != 240)
         return false;
-    if (!parse({"benchmark", "9", "tree", "mixed", "4", "--sleep"}, options)
+    if (!parse({"benchmark", "9", "tree", "mixed", "4", "3", "--sleep"}, options)
         || !options.sleepingEnabled || options.measuredSteps != 9 || options.warmupSteps != 4
-        || options.algorithm != phys::BroadPhaseAlgorithm::DynamicTree)
+        || options.algorithm != phys::BroadPhaseAlgorithm::DynamicTree
+        || options.narrowPhaseWorkers != 3)
         return false;
     if (!parse({"benchmark", "7", "tree", "spheres", "0"}, options)
         || options.measuredSteps != 7 || options.warmupSteps != 0
@@ -83,8 +85,9 @@ bool testOptions()
         && !parse({"benchmark", "5", "invalid"}, options)
         && !parse({"benchmark", "5", "tree", "invalid"}, options)
         && !parse({"benchmark", "5", "tree", "mixed", "-1"}, options)
+        && !parse({"benchmark", "5", "tree", "mixed", "0", "0"}, options)
         && !parse({"benchmark", "--sleep", "--sleep"}, options)
-        && !parse({"benchmark", "5", "tree", "mixed", "0", "extra"}, options);
+        && !parse({"benchmark", "5", "tree", "mixed", "0", "1", "extra"}, options);
 }
 
 bool testMixedScene()
@@ -138,6 +141,7 @@ bool testWarmupAndReport()
     auto report = phys::bench::runBenchmark(32, 120.0, 42, options);
     if (report.sampleCount != 120 || report.warmupSteps != 240
         || report.staticBodies != 1 || report.sphereBodies != 16 || report.boxBodies != 16
+        || report.narrowPhaseWorkers != 1
         || report.totalTreeInsertions != 0 || report.broadPhaseDetails.treeProxyCount != 33
         || report.possiblePairs != 32 * 33 / 2
         || !(report.warmupTotalMs >= report.coldFirstStepMs)
@@ -170,6 +174,7 @@ bool testWarmupAndReport()
     if (output.str().find("Dynamic bodies:             32") == std::string::npos
         || output.str().find("Warmup steps:               240") == std::string::npos
         || output.str().find("Measured steps:             120") == std::string::npos
+        || output.str().find("Narrowphase workers:        1") == std::string::npos
         || output.str().find("Stage timing distribution (ms):") == std::string::npos
         || output.str().find("Slowest measured step (") == std::string::npos
         || output.str().find("Narrowphase detail (mean per step):") == std::string::npos

@@ -122,8 +122,8 @@ struct Totals
 
 int main(int argc, char** argv)
 {
-    if (argc < 2 || argc > 5) {
-        std::cerr << "Usage: phys_cpu_profile <spheres|boxes|mixed5k|mixed10k> [seconds=20] [--wait] [--sleep]\n";
+    if (argc < 2 || argc > 6) {
+        std::cerr << "Usage: phys_cpu_profile <spheres|boxes|mixed5k|mixed10k> [seconds=20] [--wait] [--sleep] [--workers=N]\n";
         return 1;
     }
     std::string_view scene = argv[1];
@@ -143,12 +143,25 @@ int main(int argc, char** argv)
     }
     bool wait = false;
     bool sleeping = false;
+    std::size_t narrowPhaseWorkers = 1;
+    bool workersSet = false;
     for (int index = 3; index < argc; ++index) {
         std::string_view option = argv[index];
         if (option == "--wait" && !wait)
             wait = true;
         else if (option == "--sleep" && !sleeping)
             sleeping = true;
+        else if (option.starts_with("--workers=") && !workersSet) {
+            std::string_view count = option.substr(std::string_view("--workers=").size());
+            auto [end, error] = std::from_chars(
+                count.data(), count.data() + count.size(), narrowPhaseWorkers);
+            if (error != std::errc{} || end != count.data() + count.size()
+                || narrowPhaseWorkers == 0) {
+                std::cerr << "Narrowphase workers must be a positive integer\n";
+                return 1;
+            }
+            workersSet = true;
+        }
         else {
             std::cerr << "Unknown or duplicate profile option: " << option << '\n';
             return 1;
@@ -177,6 +190,7 @@ int main(int argc, char** argv)
         ? phys::BroadPhaseAlgorithm::SweepAndPrune
         : phys::BroadPhaseAlgorithm::DynamicTree;
     world.setSleepingEnabled(sleeping);
+    world.setNarrowPhaseWorkerCount(narrowPhaseWorkers);
     int warmup = 0;
     float warmLinear = 0;
     float warmAngular = 0;
@@ -213,6 +227,7 @@ int main(int argc, char** argv)
               << " max_linear_speed=" << warmLinear << " max_angular_speed=" << warmAngular
               << " contacts=" << world.contacts().size() << " contact_points=" << warmPoints
               << " sleeping_enabled=" << sleeping
+              << " narrowphase_workers=" << narrowPhaseWorkers
               << " sleeping_bodies=" << world.lastStepStats().sleepingBodyCount << std::endl;
     if (wait) {
         std::string line;

@@ -5,6 +5,8 @@ project(phys-engine LANGUAGES CXX)
 option(PHYS_BUILD_SANDBOX "Build the headless sandbox entry point" ON)
 option(PHYS_BUILD_BENCHMARKS "Build the benchmark entry points" OFF)
 
+find_package(Threads REQUIRED)
+
 add_library(phys STATIC
     src/math/math_utils.cpp
     src/dynamics/rigid_body.cpp
@@ -24,6 +26,7 @@ add_library(phys::phys ALIAS phys)
 
 target_compile_features(phys PUBLIC cxx_std_20)
 target_include_directories(phys PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+target_link_libraries(phys PUBLIC Threads::Threads)
 set_target_properties(phys PROPERTIES CXX_EXTENSIONS OFF)
 
 if(PHYS_BUILD_SANDBOX)

@@ -30,8 +30,18 @@ SAP sweep-and-emit is the largest broadphase subphase. Pair ordering previously
 cost about 0.5 ms at 5,000 bodies and 1.1 ms at 10,000; stable counting passes
 reduced that to about 0.05 and 0.10 ms.
 
-Narrowphase is also substantial. Box-box candidates account for most sampled
-narrowphase time, so it is the clearest future parallel workload.
+Narrowphase is also substantial. It can optionally use persistent workers while
+preserving exact contact order:
+
+| Workers | 5k full step | 5k narrowphase | 10k full step | 10k narrowphase |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 6.8430 ms | 1.8791 ms | 14.4327 ms | 3.4658 ms |
+| 2 | 6.0679 ms | 1.0552 ms | 12.8805 ms | 1.9803 ms |
+| 4 | 5.6066 ms | 0.6321 ms | 12.1580 ms | 1.1870 ms |
+
+The worker count includes the calling thread. One worker remains the default,
+and scenes below 4,096 candidate pairs stay serial to avoid synchronization
+overhead.
 
 ## Broadphase guidance
 
@@ -68,6 +78,7 @@ Run the sustained mixed workload:
 
 ```sh
 ./build/release-bench/phys_collision_bench 1200 sap mixed 240
+./build/release-bench/phys_collision_bench 1200 sap mixed 240 4
 ```
 
 Compare broadphase backends:
@@ -84,6 +95,7 @@ Run focused CPU-profile workloads:
 ./build/release-bench/phys_cpu_profile mixed5k 20
 ./build/release-bench/phys_cpu_profile mixed10k 20
 ./build/release-bench/phys_cpu_profile boxes 20
+./build/release-bench/phys_cpu_profile mixed10k 20 --workers=4
 ```
 
 Append `--sleep` to a scaling or profile command to enable sleeping before
@@ -93,6 +105,7 @@ warmup.
 
 | Area | Reports |
 | --- | --- |
+| Parallelism | [deterministic parallel narrowphase](../benchmarks/results/parallel-narrowphase-release.txt) |
 | Current SAP | [linear pair ordering](../benchmarks/results/sap-linear-pair-ordering-release.txt), [redundant X checks](../benchmarks/results/sap-redundant-x-release.txt) |
 | Current solver | [derived tangent velocity](../benchmarks/results/derived-tangent-velocity-release.txt), [coupled friction](../benchmarks/results/coupled-friction-release.txt), [hot-subphase profile](../benchmarks/results/mixed-sap-hot-subphases.txt) |
 | Earlier solver work | [invariant caching](../benchmarks/results/solver-cache-release.txt), [inline cross product](../benchmarks/results/inline-cross-release.txt), [warm-start indexing](../benchmarks/results/warmstart-index.txt) |
