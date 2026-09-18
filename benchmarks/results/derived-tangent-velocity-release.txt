@@ -1,0 +1,88 @@
+Derived Post-Normal Tangent Velocity - Release Comparison
+=========================================================
+
+Date:                       2026-09-17
+Hardware:                   Apple M2, macOS arm64
+Compiler/build:             Apple Clang, Release (-O3 -DNDEBUG), C++20
+Control revision:           0ba2d00
+Current source:             experiment/solver-derived-tangent-velocity working tree
+Mixed command:              phys_collision_bench 1200 sap mixed 240
+Box command:                phys_cpu_profile boxes 3
+Mixed scene:                Seeded mixed floor, sleeping disabled
+Protocol:                   240 warmup + 1200 measured mixed steps
+Run order:                  control/current, current/control, control/current
+Statistic:                  Median of three per-run means
+
+Implementation
+--------------
+
+Each velocity iteration previously computed both bodies' contact velocities
+before the normal solve, applied the normal impulse, and then computed both
+contact velocities again for friction.
+
+Preparation now caches how a unit normal impulse changes relative contact
+velocity along each tangent. The iteration derives both post-normal tangent
+velocities from the already-computed pre-normal relative velocity and the
+applied normal impulse. It avoids two cross products and the second set of
+body-velocity reads per visited point. Iteration count, contact order,
+Gauss-Seidel updates, effective masses, and impulse limits are unchanged.
+
+Each prepared contact point grows by two floats.
+
+Sustained mixed SAP results
+---------------------------
+
+bodies,control_step_ms,current_step_ms,step_change,control_solver_ms,current_solver_ms,solver_change,control_velocity_ms,current_velocity_ms,velocity_change,control_prepare_ms,current_prepare_ms
+5000,8.13,7.35,-9.6%,4.07,3.29,-19.2%,2.8711,2.0579,-28.3%,0.5812,0.6303
+10000,17.41,15.96,-8.3%,8.44,6.98,-17.3%,5.9142,4.3404,-26.6%,1.2229,1.3278
+
+The three per-run means were:
+
+bodies,variant,step_ms,solver_ms,velocity_iterations_ms,prepare_ms
+5000,control,8.18 / 8.04 / 8.13,4.07 / 3.99 / 4.07,2.8802 / 2.8222 / 2.8711,0.5812 / 0.5691 / 0.5914
+5000,current,7.29 / 7.37 / 7.35,3.25 / 3.30 / 3.29,2.0311 / 2.0614 / 2.0579,0.6259 / 0.6370 / 0.6303
+10000,control,17.63 / 17.28 / 17.41,8.58 / 8.34 / 8.44,5.9799 / 5.8614 / 5.9142,1.2900 / 1.2188 / 1.2229
+10000,current,15.77 / 16.05 / 15.96,6.84 / 7.01 / 6.98,4.2657 / 4.3404 / 4.3437,1.3254 / 1.3480 / 1.3278
+
+Preparation costs 8.5%-8.6% more, but it runs once per point while the saved
+work occurred in all eight iterations. Median 5,000-body deadline misses fell
+from 144/1,200 to 41/1,200. The 10,000-body workload still missed every
+deadline.
+
+Settled-box result
+------------------
+
+Three interleaved three-second runs after 240 warmup steps produced:
+
+variant,step_ms,solver_ms,velocity_iterations_ms,prepare_ms
+control,0.7796,0.5745,0.4674,0.0662
+current,0.6351,0.4314,0.3190,0.0726
+change,-18.5%,-24.9%,-31.8%,+9.7%
+
+All runs retained exactly 512 manifolds and 2,048 contact points. Final linear
+and angular speeds remained effectively zero.
+
+Behavior
+--------
+
+The mixed scene remains finite and healthy, with no escaped or below-floor
+bodies:
+
+bodies,variant,mean_candidates,mean_manifolds,mean_points,final_floor_penetration,final_max_linear_speed,final_max_angular_speed
+5000,control,12281.42,8151.21,12095.99,0.0055,2.0413,4.6302
+5000,current,12323.23,8171.82,12110.08,0.0055,2.0413,3.7489
+10000,control,24852.50,16369.98,24100.04,0.0056,3.7478,4.3350
+10000,current,24853.50,16427.01,24119.39,0.0055,3.7472,4.3338
+
+The algebra is equivalent, but deriving the post-normal velocity changes
+floating-point operation order. Small local differences accumulate into
+different long-run trajectories, as expected for this contact-dense scene.
+No solver tolerance, iteration count, or physical limit changed.
+
+Decision
+--------
+
+Retain. The experiment exceeds the predeclared gates of 10% lower
+velocity-iteration time and 3% lower full-step time at both target sizes.
+It also improves the settled-box control while preserving its stationary
+state and exact contact load.

@@ -1144,6 +1144,35 @@ Candidate, manifold, contact-point, and final-state metrics matched exactly.
 The [full comparison](../benchmarks/results/sap-redundant-x-release.txt)
 records the run-level values.
 
+## Derived post-normal tangent velocity
+
+Each solver iteration previously calculated both contact-point velocities
+twice: once before applying the normal impulse and again before solving
+friction. The effect of that normal impulse on tangential contact velocity is
+linear and fixed for the step. Preparation now caches two scalar responses per
+point, allowing the friction solve to derive its post-normal velocity from the
+first relative-velocity calculation.
+
+Three interleaved mixed-SAP comparisons produced:
+
+| Bodies | Control step | Derived step | Control velocity loop | Derived velocity loop |
+| ---: | ---: | ---: | ---: | ---: |
+| 5,000 | 8.13 ms | 7.35 ms | 2.8711 ms | 2.0579 ms |
+| 10,000 | 17.41 ms | 15.96 ms | 5.9142 ms | 4.3404 ms |
+
+Velocity iterations improved by 28.3% and 26.6%; full-step time improved by
+9.6% and 8.3%. Preparation became about 8.5% slower, but it runs once while
+the avoided work occurred in all eight iterations. A settled 512-box workload
+improved from 0.7796 to 0.6351 ms and remained stationary with exactly 512
+manifolds and 2,048 contact points.
+
+The equations, iteration count, and processing order are unchanged, but the
+new algebra changes floating-point operation order and therefore long-run
+mixed-scene trajectories. All measured scenes remained finite and healthy.
+The
+[full comparison](../benchmarks/results/derived-tangent-velocity-release.txt)
+records the run-level values.
+
 ## Reproducing the Release workload
 
 Build the selected source revision in a separate directory to leave the

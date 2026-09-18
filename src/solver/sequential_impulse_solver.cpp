@@ -244,7 +244,8 @@ namespace phys
 					preparedPoint.offsetB, manifold.normal);
 				preparedPoint.normalResponseA = prepared.bodyA->inverseInertiaWorld * angularJacobianA;
 				preparedPoint.normalResponseB = prepared.bodyB->inverseInertiaWorld * angularJacobianB;
-				preparedPoint.inverseEffectiveMass = prepared.bodyA->inverseMass + prepared.bodyB->inverseMass + dot(angularJacobianA, preparedPoint.normalResponseA) + dot(angularJacobianB, preparedPoint.normalResponseB);
+				float inverseMassSum = prepared.bodyA->inverseMass + prepared.bodyB->inverseMass;
+				preparedPoint.inverseEffectiveMass = inverseMassSum + dot(angularJacobianA, preparedPoint.normalResponseA) + dot(angularJacobianB, preparedPoint.normalResponseB);
 
 				// Tangent angular Jacobians: Rotation can make the contact point slide sideways even if the center of mass has zero sideways velocity.
 				Vec3 tangentAngularJacobianA = Math3d::cross(
@@ -253,7 +254,12 @@ namespace phys
 					preparedPoint.offsetB, preparedPoint.tangent1);
 				preparedPoint.tangentResponseA1 = prepared.bodyA->inverseInertiaWorld * tangentAngularJacobianA;
 				preparedPoint.tangentResponseB1 = prepared.bodyB->inverseInertiaWorld * tangentAngularJacobianB;
-				float tangentMass00 = prepared.bodyA->inverseMass + prepared.bodyB->inverseMass + dot(tangentAngularJacobianA, preparedPoint.tangentResponseA1) + dot(tangentAngularJacobianB, preparedPoint.tangentResponseB1);
+				float tangentMass00 = inverseMassSum + dot(tangentAngularJacobianA, preparedPoint.tangentResponseA1) + dot(tangentAngularJacobianB, preparedPoint.tangentResponseB1);
+				// Tangential contact-velocity change caused by a unit normal impulse.
+				preparedPoint.normalTangentResponse1 =
+					inverseMassSum * dot(manifold.normal, preparedPoint.tangent1)
+					+ dot(tangentAngularJacobianA, preparedPoint.normalResponseA)
+					+ dot(tangentAngularJacobianB, preparedPoint.normalResponseB);
 
 				tangentAngularJacobianA = Math3d::cross(
 					preparedPoint.offsetA, preparedPoint.tangent2);
@@ -261,7 +267,11 @@ namespace phys
 					preparedPoint.offsetB, preparedPoint.tangent2);
 				preparedPoint.tangentResponseA2 = prepared.bodyA->inverseInertiaWorld * tangentAngularJacobianA;
 				preparedPoint.tangentResponseB2 = prepared.bodyB->inverseInertiaWorld * tangentAngularJacobianB;
-				float tangentMass11 = prepared.bodyA->inverseMass + prepared.bodyB->inverseMass + dot(tangentAngularJacobianA, preparedPoint.tangentResponseA2) + dot(tangentAngularJacobianB, preparedPoint.tangentResponseB2);
+				float tangentMass11 = inverseMassSum + dot(tangentAngularJacobianA, preparedPoint.tangentResponseA2) + dot(tangentAngularJacobianB, preparedPoint.tangentResponseB2);
+				preparedPoint.normalTangentResponse2 =
+					inverseMassSum * dot(manifold.normal, preparedPoint.tangent2)
+					+ dot(tangentAngularJacobianA, preparedPoint.normalResponseA)
+					+ dot(tangentAngularJacobianB, preparedPoint.normalResponseB);
 				float tangentMass01 =
 					dot(tangentAngularJacobianA, preparedPoint.tangentResponseA1)
 					+ dot(tangentAngularJacobianB, preparedPoint.tangentResponseB1);
@@ -364,15 +374,15 @@ namespace phys
 					PreparedContactPoint &preparedPoint = prepared.points[index];
 					if (preparedPoint.inverseEffectiveMass <= 0.0f)
 						continue;
-					Vec3 offsetA = preparedPoint.offsetA;
-					Vec3 offsetB = preparedPoint.offsetB;
-					Vec3 velocityA = bodyA->getLinearVelocity() + Math3d::cross(bodyA->getAngularVelocity(), offsetA);
-					Vec3 velocityB = bodyB->getLinearVelocity() + Math3d::cross(bodyB->getAngularVelocity(), offsetB);
+					const Vec3 &offsetA = preparedPoint.offsetA;
+					const Vec3 &offsetB = preparedPoint.offsetB;
+					const Vec3 velocityA = bodyA->getLinearVelocity() + Math3d::cross(bodyA->getAngularVelocity(), offsetA);
+					const Vec3 velocityB = bodyB->getLinearVelocity() + Math3d::cross(bodyB->getAngularVelocity(), offsetB);
+					const Vec3 relativeVelocity = velocityB - velocityA;
 
 					// Given that these objects are in contact, how fast are their already-known
 					// contact points moving relative to each other along the contact normal?
-					float velocityAlongNormal = dot(
-						velocityB - velocityA, manifold.normal);
+					float velocityAlongNormal = dot(relativeVelocity, manifold.normal);
 
 					// ------ Gauss-Seidel: Each constraint immediately updates the bodies ---------
 					float impulseDelta = -(velocityAlongNormal + preparedPoint.restitutionVelocity - preparedPoint.bias) / preparedPoint.inverseEffectiveMass;
@@ -391,16 +401,15 @@ namespace phys
 						|| preparedPoint.inverseTangentMass11 <= 0.0f)
 						continue;
 
-					// Solve both tangent axes from one post-normal relative velocity,
-					// then project the accumulated impulse onto the Coulomb disk.
+					// Derive post-normal tangent velocity from the pre-normal velocity
+					// and the cached response, then solve against the Coulomb disk.
 					float tangentLimit = std::max(manifold.friction, 0.0f) * point.normalImpulse;
-					velocityA = bodyA->getLinearVelocity() + Math3d::cross(bodyA->getAngularVelocity(), offsetA);
-					velocityB = bodyB->getLinearVelocity() + Math3d::cross(bodyB->getAngularVelocity(), offsetB);
-					Vec3 relativeVelocity = velocityB - velocityA;
 					float tangentVelocity1 = dot(
-						relativeVelocity, preparedPoint.tangent1);
+						relativeVelocity, preparedPoint.tangent1)
+						+ preparedPoint.normalTangentResponse1 * appliedImpulse;
 					float tangentVelocity2 = dot(
-						relativeVelocity, preparedPoint.tangent2);
+						relativeVelocity, preparedPoint.tangent2)
+						+ preparedPoint.normalTangentResponse2 * appliedImpulse;
 					float tangentImpulseDelta1 = -(
 						preparedPoint.inverseTangentMass00 * tangentVelocity1
 						+ preparedPoint.inverseTangentMass01 * tangentVelocity2);

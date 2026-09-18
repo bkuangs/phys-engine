@@ -64,6 +64,8 @@ struct PreparedContactPoint
     float inverseTangentMass00 = 0.0f;
     float inverseTangentMass01 = 0.0f;
     float inverseTangentMass11 = 0.0f;
+    float normalTangentResponse1 = 0.0f;
+    float normalTangentResponse2 = 0.0f;
     float bias = 0.0f;
     float restitutionVelocity = 0.0f;
 };
