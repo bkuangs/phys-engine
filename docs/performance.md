@@ -1122,6 +1122,28 @@ and healthy. The
 [full comparison](../benchmarks/results/coupled-friction-release.txt) records
 those differences.
 
+## SAP overlap specialization
+
+The SAP inner loop previously called the generic six-comparison AABB overlap
+test after the sweep had already proven X overlap. Sorted minimum-X order
+guarantees `first.min.x <= second.max.x`, while continuing past the break
+guarantees `second.min.x <= first.max.x`. The specialized loop therefore tests
+only Y and Z, preserving inclusive touching behavior and exact pair order.
+
+Three interleaved 1,200-step comparisons produced:
+
+| Bodies | Control step | Specialized step | Control sweep | Specialized sweep |
+| ---: | ---: | ---: | ---: | ---: |
+| 5,000 | 8.21 ms | 8.05 ms | 1.4624 ms | 1.2999 ms |
+| 10,000 | 17.88 ms | 17.35 ms | 3.8326 ms | 3.3428 ms |
+
+Sweep-and-emit improved by 11.1% and 12.8%; full-step time improved by 1.9%
+and 3.0%. The 5,000-body result is within the report's 0.01 ms rounding of the
+2% full-step target, and all three current runs were faster than all controls.
+Candidate, manifold, contact-point, and final-state metrics matched exactly.
+The [full comparison](../benchmarks/results/sap-redundant-x-release.txt)
+records the run-level values.
+
 ## Reproducing the Release workload
 
 Build the selected source revision in a separate directory to leave the

@@ -190,7 +190,11 @@ void detail::findCandidatePairs(const std::vector<Aabb>& bounds,
             const SweepEntry& second = entries[j];
             if (second.bounds.min.x > first.bounds.max.x)
                 break;
-            if (first.bounds.overlaps(second.bounds))
+            // Sorted minima and the break condition already guarantee X overlap.
+            if (first.bounds.min.y <= second.bounds.max.y
+                && first.bounds.max.y >= second.bounds.min.y
+                && first.bounds.min.z <= second.bounds.max.z
+                && first.bounds.max.z >= second.bounds.min.z)
                 pairs.push_back({std::min(first.originalIndex, second.originalIndex),
                                  std::max(first.originalIndex, second.originalIndex)});
         }
