@@ -19,18 +19,9 @@ cmake -S . -B build/release-bench -DCMAKE_BUILD_TYPE=Release \
 
 cmake --build build/release-bench --target phys_collision_bench -j 4
 ./build/release-bench/phys_collision_bench
-```
 
-## Sleeping and Waking
-
-Sleeping is opt-in and works with all three broadphase backends:
-
-```cpp
-world.setSleepingEnabled(true);
-if (auto *body = world.getBody(handle)) {
-    bool sleeping = body->isSleeping();
-    body->applyLinearImpulse({1, 0, 0});     // Automatically wakes the body.
-}
+# phys_collision_bench [steps] [sap|grid|tree] [mixed|spheres] \
+#   [warmup] [narrowphase_workers] [solver_workers] [broadphase_workers] [--sleep]
 ```
 
 ## Pipeline
@@ -59,8 +50,7 @@ Integrate positions / orientations
 
 See [architecture](docs/architecture.md),
 [collision pipeline](docs/collision_pipeline.md), and the concise
-[performance optimization history](docs/performance_optimizations.md) for
-intended boundaries, open decisions, and retained performance work.
+[performance optimization history](docs/performance_optimizations.md) for more.
 
 ## Roadmap
 
